@@ -123,8 +123,17 @@ const S_FACT = " FACT "
 
 type Context map[Variable]Term
 
+
+func setVar(v Variable, vl Term, ctx, sCtx Context) {
+	if IsGlobalVar(string(v)) {
+		sCtx[v] = vl
+	} else {
+		ctx[v] = vl
+	}
+}
+
 // t has been instanticated before calling
-func globalize(t Term, lCtx, sCtx Context) (cT Term) {
+func globalize(t Term, ctx, sCtx Context) (cT Term) {
 	switch t.Type() {
 		case ttVar:
 			v := t.(Variable)
@@ -132,25 +141,25 @@ func globalize(t Term, lCtx, sCtx Context) (cT Term) {
 				return t
 			}
 			sV := genUniqueVar()
-			lCtx[v] = sV
+			setVar(v, sV, ctx, sCtx)
 			return sV
 			
 		case ttComplex:
 			ct := t.(*ComplexTerm)
 			gArgs := make([]Term, len(ct.Args))
 			for i, arg := range ct.Args {
-				arg = instantiate(arg, lCtx, sCtx)
-				gArgs[i] = globalize(arg, lCtx, sCtx)
+				arg = instantiate(arg, ctx, sCtx)
+				gArgs[i] = globalize(arg, ctx, sCtx)
 			}
 			return NewComplexTerm(ct.Functor, gArgs...)
 	}
 	return t
 }
 
-func instantiate(t Term, lCtx, sCtx Context) Term {
+func instantiate(t Term, ctx, sCtx Context) Term {
 	for t.Type() == ttVar {
 		v := t.(Variable)
-		if i, ok := lCtx[v]; ok {
+		if i, ok := ctx[v]; ok {
 			t = i
 			continue
 		}
@@ -201,13 +210,14 @@ func matchTerm(L, R Term, lCtx, rCtx, sCtx Context) (succ bool) {
 			rV := R.(Variable)
 			if lV != rV {
 				sV := genUniqueVar()
-				lCtx[lV], rCtx[rV] = sV, sV
+				setVar(lV, sV, lCtx, sCtx)
+				setVar(rV, sV, rCtx, sCtx)
 				// Otherwise already matche
 			}
 		} else {
 			// L <= R
 			rT := globalize(R, rCtx, sCtx)
-			lCtx[lV] = rT
+			setVar(lV, rT, lCtx, sCtx)
 		}
 		return true
 	}
@@ -216,7 +226,7 @@ func matchTerm(L, R Term, lCtx, rCtx, sCtx Context) (succ bool) {
 		// L => R
 		rV := R.(Variable)
 		lT := globalize(L, lCtx, sCtx)
-		rCtx[rV] = lT
+		setVar(rV, lT, rCtx, sCtx)
 		return true
 	}
 
@@ -256,6 +266,7 @@ func matchHead(ruleHead, formHead *ComplexTerm) (mRuleHead, mFormHead *ComplexTe
 		mRuleArgs[i] = fullInstantiate(ruleHead.Args[i], ruleCtx, sCtx)
 		mFormArgs[i] = fullInstantiate(formHead.Args[i], formCtx, sCtx)
 	}
+	fmt.Println("ruleCtx:", ruleCtx, ", formCtx:", formCtx, ", sCtx:", sCtx)
 	
 	return NewComplexTerm(ruleHead.Functor, mRuleArgs...), NewComplexTerm(formHead.Functor, mFormArgs...)
 }
