@@ -3,12 +3,17 @@ package prolog
 import (
 	"bytes"
 	"fmt"
+	"strings"
+)
+
+const (
+	ttAtom = iota
+	ttVar
+	ttComplex
 )
 
 type Term interface {
-	Match(t Term, sln Solution) (succ bool)
-	ReplaceVariables(varMap map[Variable]Variable) Term
-	Instantiate(sln Solution) Term
+	Type() int
 }
 
 type Atom string
@@ -17,63 +22,32 @@ func A(str string) Atom {
 	return Atom(str)
 }
 
-func (at Atom) Match(t Term, sln Solution) (succ bool) {
-	//fmt.Println("Atom", at, "Matching(", t, ")", sln)
-	insT := t.Instantiate(sln)
-	switch mt := insT.(type) {
-	case Atom:
-		succ = at == mt
-	case Variable:
-		sln[mt] = at
-		succ = true
-	default:
-		succ = false
-	}
-	//fmt.Println("Atom", at, "Match(", t, ")", sln, ", ", succ)
-	return succ
-}
-
-func (at Atom) Instantiate(sln Solution) Term {
-	return at
-}
-
-func (at Atom) ReplaceVariables(varMap map[Variable]Variable) Term {
-	return at
+func (at Atom) Type() int {
+	return ttAtom
 }
 
 type Variable string
 
-func (v Variable) Match(t Term, sln Solution) (succ bool) {
-	//fmt.Println("Variable", v, "Matching(", t, ")", sln)
-	ins := v.Instantiate(sln)
-	switch vv := ins.(type) {
-	case Variable:
-		succ = true
-		switch mt := t.(type) {
-		case Variable:
-			tt := mt.Instantiate(sln)
-			if tt == vv {
-			} else {
-				sln[vv] = tt
-			}
-		default:
-			succ = true
-			sln[vv] = mt.Instantiate(sln)
-		}
-	default:
-		succ = ins.Match(t, sln)
-	}
+const _VAR_GLOBAL_PREFIX = "_AUTO_"
+const _VAR_GLOBAL_FMT = "_AUTO_%d"
 
-	//fmt.Println("Variable", v, "Match(", t, ")", sln, ", ", succ)
-	return succ
+func IsGlobalVar(str string) bool {
+	return strings.HasPrefix(str, _VAR_GLOBAL_PREFIX)
 }
 
-func (v Variable) Instantiate(sln Solution) Term {
-	ins, ok := sln[v]
-	if ok {
-		return ins
+func V(str string) Variable {
+	if IsGlobalVar(str) {
+		panic(str + " is a GLOBAL VARIABLE name")
 	}
-	return v
+	return Variable(str)
+}
+
+func _v(str string) Variable {
+	return Variable(str)
+}
+
+func (v Variable) Type() int {
+	return ttVar
 }
 
 var gUniqueVarChan chan Variable
@@ -83,7 +57,7 @@ func init() {
 	go func() {
 		counter := 0
 		for {
-			gUniqueVarChan <- V(fmt.Sprintf("_AUTO_%d", counter))
+			gUniqueVarChan <- _v(fmt.Sprintf(_VAR_GLOBAL_FMT, counter))
 			counter++
 		}
 	}()
@@ -93,22 +67,6 @@ func genUniqueVar() Variable {
 	return <-gUniqueVarChan
 }
 
-// varMap: v -> newV
-func (v Variable) ReplaceVariables(varMap map[Variable]Variable) Term {
-	newV, ok := varMap[v]
-	if !ok {
-		newV := genUniqueVar()
-		varMap[v] = newV
-		return newV
-	}
-
-	return newV
-}
-
-func V(str string) Variable {
-	return Variable(str)
-}
-
 type ComplexTerm struct {
 	Functor Atom
 	Args    []Term
@@ -116,6 +74,10 @@ type ComplexTerm struct {
 
 func NewComplexTerm(functor Atom, args ...Term) *ComplexTerm {
 	return &ComplexTerm{Functor: functor, Args: args}
+}
+
+func (ct *ComplexTerm) Type() int {
+	return ttComplex
 }
 
 func (ct *ComplexTerm) Key() string {
@@ -138,111 +100,177 @@ func (ct *ComplexTerm) String() string {
 	return buf.String()
 }
 
-func (ct *ComplexTerm) Match(t Term, sln Solution) (succ bool) {
-	switch mt := t.(type) {
-	case Variable:
-		mIns, ok := sln[mt]
-		if !ok {
-			sln[mt] = ct
-			succ = true
-		} else {
-			succ = ct.Match(mIns, sln)
-		}
-
-	case *ComplexTerm:
-		if ct.Functor == mt.Functor && len(ct.Args) == len(mt.Args) {
-			succ = true
-			for i, arg := range ct.Args {
-				succ = arg.Match(mt.Args[i], sln)
-				if !succ {
-					break
-				}
-			}
-		} else {
-			succ = false
-		}
-	default:
-		succ = false
-	}
-
-	//fmt.Println(ct, "Match(", t, ", ", sln, ") ", succ)
-
-	return succ
+type Rule struct {
+	head *ComplexTerm
+	body string
 }
-
-func (ct *ComplexTerm) Instantiate(sln Solution) Term {
-	newArgs := make([]Term, len(ct.Args))
-	for i, arg := range ct.Args {
-		newArgs[i] = arg.Instantiate(sln)
-	}
-
-	return NewComplexTerm(ct.Functor, newArgs...)
-}
-
-func (ct *ComplexTerm) ReplaceVariables(varMap map[Variable]Variable) Term {
-	newArgs := make([]Term, len(ct.Args))
-	for i, arg := range ct.Args {
-		newArgs[i] = arg.ReplaceVariables(varMap)
-	}
-
-	return NewComplexTerm(ct.Functor, newArgs...)
-}
-
-func (ct *ComplexTerm) AllVariables(st map[Variable]struct{}) {
-	for _, arg := range ct.Args {
-		switch a := arg.(type) {
-		case Variable:
-			st[a] = struct{}{}
-
-		case *ComplexTerm:
-			a.AllVariables(st)
-		}
-	}
-}
-
-type Solution map[Variable]Term
 
 /*****************
 	Machine Type
 *****************/
 
 type Machine struct {
-	facts map[string][]*ComplexTerm
+	rules map[string][]Rule
 }
 
 func (m *Machine) AddFact(head *ComplexTerm) {
 	key := head.Key()
-	m.facts[key] = append(m.facts[key], head.ReplaceVariables(make(map[Variable]Variable)).(*ComplexTerm))
+	m.rules[key] = append(m.rules[key], Rule{head: head})
 	fmt.Println("Adding fact:", head)
 }
 
 const S_FACT = " FACT "
 
-func (m *Machine) MatchFact(head *ComplexTerm, solutions chan Solution) {
-	//fmt.Println("Matching fact:", head)
+type Context map[Variable]Term
 
-	//fmt.Println("varMap", varMap, repHead)
-	vars := make(map[Variable]struct{})
-	head.AllVariables(vars)
-
-	facts := m.facts[head.Key()]
-	for _, fact := range facts {
-		sln := make(Solution)
-		if head.Match(fact, sln) {
-			s := make(Solution)
-			for v := range vars {
-				ins, ok := sln[v]
-				if ok {
-					s[v] = ins.Instantiate(sln)
-				}
+// t has been instanticated before calling
+func globalize(t Term, lCtx, sCtx Context) (cT Term) {
+	switch t.Type() {
+		case ttVar:
+			v := t.(Variable)
+			if IsGlobalVar(string(v)) {
+				return t
 			}
-			s[S_FACT] = Atom(fact.String())
-			solutions <- s
+			sV := genUniqueVar()
+			lCtx[v] = sV
+			return sV
+			
+		case ttComplex:
+			ct := t.(*ComplexTerm)
+			gArgs := make([]Term, len(ct.Args))
+			for i, arg := range ct.Args {
+				arg = instantiate(arg, lCtx, sCtx)
+				gArgs[i] = globalize(arg, lCtx, sCtx)
+			}
+			return NewComplexTerm(ct.Functor, gArgs...)
+	}
+	return t
+}
+
+func instantiate(t Term, lCtx, sCtx Context) Term {
+	for t.Type() == ttVar {
+		v := t.(Variable)
+		if i, ok := lCtx[v]; ok {
+			t = i
+			continue
+		}
+		if i, ok := sCtx[v]; ok {
+			t = i
+			continue
+		}
+		
+		break
+	}
+	return t
+}
+
+func fullInstantiate(t Term, lCtx, sCtx Context) Term {
+	t = instantiate(t, lCtx, sCtx)
+	switch t.Type() {
+		case ttComplex:
+			ct := t.(*ComplexTerm)
+			newArgs := make([]Term, len(ct.Args))
+			for i, arg := range ct.Args {
+				newArgs[i] = fullInstantiate(arg, lCtx, sCtx)
+			}
+			return NewComplexTerm(ct.Functor, newArgs...)
+	}
+	
+	return t
+}
+
+func matchTerm(L, R Term, lCtx, rCtx, sCtx Context) (succ bool) {
+	if L.Type() == ttVar {
+		L = instantiate(L, lCtx, sCtx)
+	}
+	if R.Type() == ttVar {
+		R = instantiate(R, rCtx, sCtx)
+	}
+
+	// clause 1
+	if L.Type() == ttAtom && R.Type() == ttAtom {
+		l, r := L.(Atom), R.(Atom)
+		return l == r
+	}
+
+	// clause 2
+	if L.Type() == ttVar {
+		lV := L.(Variable)
+		if R.Type() == ttVar {
+			// both Variable's
+			rV := R.(Variable)
+			if lV != rV {
+				sV := genUniqueVar()
+				lCtx[lV], rCtx[rV] = sV, sV
+				// Otherwise already matche
+			}
+		} else {
+			// L <= R
+			rT := globalize(R, rCtx, sCtx)
+			lCtx[lV] = rT
+		}
+		return true
+	}
+
+	if R.Type() == ttVar {
+		// L => R
+		rV := R.(Variable)
+		lT := globalize(L, lCtx, sCtx)
+		rCtx[rV] = lT
+		return true
+	}
+
+	// clause 3
+	if L.Type() == ttComplex && R.Type() == ttComplex {
+		cL, cR := L.(*ComplexTerm), R.(*ComplexTerm)
+		if cL.Functor != cR.Functor || len(cL.Args) != len(cR.Args) {
+			return false
+		}
+
+		for i, lArg := range cL.Args {
+			rArg := cR.Args[i]
+			if !matchTerm(lArg, rArg, lCtx, rCtx, sCtx) {
+				return false
+			}
+		}
+
+		return true
+	}
+
+	return false
+}
+
+func matchHead(ruleHead, formHead *ComplexTerm) (mRuleHead, mFormHead *ComplexTerm) {
+	ruleCtx, formCtx, sCtx := make(Context), make(Context), make(Context)
+	for i, ruleArg := range ruleHead.Args {
+		formArg := formHead.Args[i]
+		if !matchTerm(ruleArg, formArg, ruleCtx, formCtx, sCtx) {
+			return nil, nil
+		}
+	}
+
+	mRuleArgs := make([]Term, len(ruleHead.Args))
+	mFormArgs := make([]Term, len(formHead.Args))
+	
+	for i := range ruleHead.Args {
+		mRuleArgs[i] = fullInstantiate(ruleHead.Args[i], ruleCtx, sCtx)
+		mFormArgs[i] = fullInstantiate(formHead.Args[i], formCtx, sCtx)
+	}
+	
+	return NewComplexTerm(ruleHead.Functor, mRuleArgs...), NewComplexTerm(formHead.Functor, mFormArgs...)
+}
+
+func (m *Machine) Match(head *ComplexTerm, solutions chan *ComplexTerm) {
+	rules := m.rules[head.Key()]
+	for _, rule := range rules {
+		_, mFormHead := matchHead(rule.head, head)
+		if mFormHead != nil {
+			solutions <- mFormHead
 		}
 	}
 	close(solutions)
 }
 
 func NewMachine() *Machine {
-	return &Machine{facts: map[string][]*ComplexTerm{}}
+	return &Machine{rules: map[string][]Rule{}}
 }

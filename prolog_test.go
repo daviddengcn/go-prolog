@@ -6,23 +6,16 @@ import (
 )
 
 func matchFact(m *Machine, ct *ComplexTerm) {
-	slns := make(chan Solution)
-	go m.MatchFact(ct, slns)
+	slns := make(chan *ComplexTerm)
+	go m.Match(ct, slns)
 	fmt.Println("Match fact ", ct, ": ")
 	found := false
-	for s := range slns {
+	for sln := range slns {
 		if !found {
 			found = true
 			fmt.Println("    true")
 		}
-		fmt.Printf("    %s\n", s[S_FACT])
-		fmt.Print("        ")
-		for k, v := range s {
-			if k != S_FACT {
-				fmt.Print(" ", k, " = ", v)
-			}
-		}
-		fmt.Println()
+		fmt.Println("    ", sln)
 	}
 	if found {
 		fmt.Println()
