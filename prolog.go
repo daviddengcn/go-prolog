@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+// Constants for Term Types.
 const (
 	ttAtom = iota
 	ttVar
@@ -100,9 +101,41 @@ func (ct *ComplexTerm) String() string {
 	return buf.String()
 }
 
+// Constants for Goal Types. Returned by Goal.Type
+const(
+	gtConj = iota
+	gtDisj
+	gtComplex // *ComplexTerm
+	gtMatch // Term = Term
+)
+
+type Goal interface {
+	Type() int
+}
+
+type ConjGoal []Goal
+
+func (cg ConjGoal) Type() int {
+	return gtConj
+}
+
+type DisjGoal []Goal
+func (dg DisjGoal) Type() int {
+	return gtDisj
+}
+
+type ComplexGoal ComplexTerm
+func (cg *ComplexGoal) Type() int {
+	return gtComplex
+}
+
+type MatchGoal struct {
+	L, R Term
+}
+
 type Rule struct {
 	head *ComplexTerm
-	body string
+	body Goal
 }
 
 /*****************
