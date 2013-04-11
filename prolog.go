@@ -433,7 +433,7 @@ func subContext(aCtx, bCtx Context) Context {
 var indent string
 
 func (m *Machine) Match(form *ComplexTerm, solutions chan Context) {
-	//fmt.Println(indent, "Match:", form)
+fmt.Println(indent, "Match:", form)
 	indent += "    "
 	defer func() { indent = indent[:len(indent)-4] }()
 
@@ -444,7 +444,7 @@ func (m *Machine) Match(form *ComplexTerm, solutions chan Context) {
 			// head not matched
 			continue
 		}
-		//fmt.Println(indent, "Head", form, formCtx, rule.Head, ruleCtx)
+fmt.Println(indent, "Head", form, formCtx, rule.Head, ruleCtx)
 
 		if rule.Body == nil {
 			//fmt.Println(indent, form, "Fact", rule.Head, formCtx)

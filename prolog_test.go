@@ -106,3 +106,23 @@ func TestRule(t *testing.T) {
 
 	fmt.Printf("Machine: %+v\n", m)
 }
+
+func TestRule2(t *testing.T) {
+	m := NewMachine()
+
+	m.AddFact(CT("parent", A("david"), A("xiaoxi")))
+	m.AddFact(CT("parent", A("laotaiye"), A("david")))
+	m.AddFact(CT("parent", A("laolaotaiye"), A("laotaiye")))
+
+	m.AddRule(R(CT("descendant", V("X"), V("Y")),
+		CT("parent", V("X"), V("Y"))))
+		
+	m.AddRule(R(CT("descendant", V("X"), V("Y")),
+		CT("parent", V("X"), V("Z")),
+		CT("descendant", V("Z"), V("Y"))))
+
+	match(m, CT("parent", V("X"), V("Y")))
+	match(m, CT("descendant", V("P"), V("Q")))
+
+	fmt.Printf("Machine: %+v\n", m)
+}
