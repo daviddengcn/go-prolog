@@ -6,6 +6,16 @@ import (
 	"strings"
 )
 
+/*
+	Short functions:
+	A   Atom
+	And ConjGoal
+	CT  *ComplexTerm
+	Or  DisjGoal
+	R   Rule
+	V   Variable
+*/
+
 // Constants for Term Types.
 const (
 	ttAtom = iota
@@ -32,12 +42,12 @@ type Variable string
 const _VAR_GLOBAL_PREFIX = "_AUTO_"
 const _VAR_GLOBAL_FMT = "_AUTO_%d"
 
-func IsGlobalVar(str string) bool {
+func IsGlobalVarName(str string) bool {
 	return strings.HasPrefix(str, _VAR_GLOBAL_PREFIX)
 }
 
 func V(str string) Variable {
-	if IsGlobalVar(str) {
+	if IsGlobalVarName(str) {
 		panic(str + " is a GLOBAL VARIABLE name")
 	}
 	return Variable(str)
@@ -77,6 +87,10 @@ func NewComplexTerm(functor Atom, args ...Term) *ComplexTerm {
 	return &ComplexTerm{Functor: functor, Args: args}
 }
 
+func CT(functor Atom, args ...Term) *ComplexTerm {
+	return &ComplexTerm{Functor: functor, Args: args}
+}
+
 func (ct *ComplexTerm) Type() int {
 	return ttComplex
 }
@@ -102,30 +116,49 @@ func (ct *ComplexTerm) String() string {
 }
 
 // Constants for Goal Types. Returned by Goal.Type
-const(
+const (
 	gtConj = iota
 	gtDisj
 	gtComplex // *ComplexTerm
-	gtMatch // Term = Term
+	gtMatch   // Term = Term
 )
 
 type Goal interface {
-	Type() int
+	GoalType() int
 }
 
 type ConjGoal []Goal
 
-func (cg ConjGoal) Type() int {
+func And(goals ...Goal) ConjGoal {
+	return ConjGoal(goals)
+}
+
+func (cg ConjGoal) String() string {
+	var buf bytes.Buffer
+	for i, g := range cg {
+		if i > 0 {
+			buf.WriteString(",\n")
+		}
+		buf.WriteString("    " + fmt.Sprint(g))
+	}
+	return buf.String()
+}
+
+func (cg ConjGoal) GoalType() int {
 	return gtConj
 }
 
 type DisjGoal []Goal
-func (dg DisjGoal) Type() int {
+
+func (dg DisjGoal) GoalType() int {
 	return gtDisj
 }
 
-type ComplexGoal ComplexTerm
-func (cg *ComplexGoal) Type() int {
+func Or(goals ...Goal) DisjGoal {
+	return DisjGoal(goals)
+}
+
+func (cg *ComplexTerm) GoalType() int {
 	return gtComplex
 }
 
@@ -134,8 +167,23 @@ type MatchGoal struct {
 }
 
 type Rule struct {
-	head *ComplexTerm
-	body Goal
+	Head *ComplexTerm
+	Body Goal
+}
+
+func R(head *ComplexTerm, goals ...Goal) Rule {
+	return Rule{Head: head, Body: ConjGoal(goals)}
+}
+
+func (r Rule) String() string {
+	var buf bytes.Buffer
+	buf.WriteString(r.Head.String())
+	if r.Body != nil {
+		buf.WriteString(" :- \n")
+		buf.WriteString(fmt.Sprint(r.Body))
+	}
+	buf.WriteRune('.')
+	return buf.String()
 }
 
 /*****************
@@ -147,44 +195,61 @@ type Machine struct {
 }
 
 func (m *Machine) AddFact(head *ComplexTerm) {
-	key := head.Key()
-	m.rules[key] = append(m.rules[key], Rule{head: head})
-	fmt.Println("Adding fact:", head)
+	m.AddRule(Rule{Head: head})
+}
+
+func (m *Machine) AddRule(rule Rule) {
+	key := rule.Head.Key()
+	m.rules[key] = append(m.rules[key], rule)
+	fmt.Println(rule)
 }
 
 const S_FACT = " FACT "
 
 type Context map[Variable]Term
 
+func isGlobalVar(v Variable, sCtx Context) bool {
+	_, ok := sCtx[v]
+	return ok
+}
 
 func setVar(v Variable, vl Term, ctx, sCtx Context) {
-	if IsGlobalVar(string(v)) {
+	if isGlobalVar(v, sCtx) {
 		sCtx[v] = vl
 	} else {
 		ctx[v] = vl
 	}
 }
 
+func genGlobalVar(sCtx Context) Variable {
+	v := genUniqueVar()
+	sCtx[v] = nil
+	return v
+}
+
 // t has been instanticated before calling
 func globalize(t Term, ctx, sCtx Context) (cT Term) {
 	switch t.Type() {
-		case ttVar:
-			v := t.(Variable)
-			if IsGlobalVar(string(v)) {
-				return t
-			}
-			sV := genUniqueVar()
-			setVar(v, sV, ctx, sCtx)
-			return sV
-			
-		case ttComplex:
-			ct := t.(*ComplexTerm)
-			gArgs := make([]Term, len(ct.Args))
-			for i, arg := range ct.Args {
-				arg = instantiate(arg, ctx, sCtx)
-				gArgs[i] = globalize(arg, ctx, sCtx)
-			}
-			return NewComplexTerm(ct.Functor, gArgs...)
+	case ttVar:
+		v := t.(Variable)
+		if isGlobalVar(v, sCtx) {
+			// v has been a global variable
+			return t
+		}
+
+		// otherwise, globalize it
+		sV := genGlobalVar(sCtx)
+		ctx[v] = sV
+		return sV
+
+	case ttComplex:
+		ct := t.(*ComplexTerm)
+		gArgs := make([]Term, len(ct.Args))
+		for i, arg := range ct.Args {
+			arg = instantiate(arg, ctx, sCtx)
+			gArgs[i] = globalize(arg, ctx, sCtx)
+		}
+		return NewComplexTerm(ct.Functor, gArgs...)
 	}
 	return t
 }
@@ -192,15 +257,15 @@ func globalize(t Term, ctx, sCtx Context) (cT Term) {
 func instantiate(t Term, ctx, sCtx Context) Term {
 	for t.Type() == ttVar {
 		v := t.(Variable)
-		if i, ok := ctx[v]; ok {
+		if i := ctx[v]; i != nil {
 			t = i
 			continue
 		}
-		if i, ok := sCtx[v]; ok {
+		if i := sCtx[v]; i != nil {
 			t = i
 			continue
 		}
-		
+
 		break
 	}
 	return t
@@ -209,15 +274,15 @@ func instantiate(t Term, ctx, sCtx Context) Term {
 func fullInstantiate(t Term, lCtx, sCtx Context) Term {
 	t = instantiate(t, lCtx, sCtx)
 	switch t.Type() {
-		case ttComplex:
-			ct := t.(*ComplexTerm)
-			newArgs := make([]Term, len(ct.Args))
-			for i, arg := range ct.Args {
-				newArgs[i] = fullInstantiate(arg, lCtx, sCtx)
-			}
-			return NewComplexTerm(ct.Functor, newArgs...)
+	case ttComplex:
+		ct := t.(*ComplexTerm)
+		newArgs := make([]Term, len(ct.Args))
+		for i, arg := range ct.Args {
+			newArgs[i] = fullInstantiate(arg, lCtx, sCtx)
+		}
+		return NewComplexTerm(ct.Functor, newArgs...)
 	}
-	
+
 	return t
 }
 
@@ -242,7 +307,7 @@ func matchTerm(L, R Term, lCtx, rCtx, sCtx Context) (succ bool) {
 			// both Variable's
 			rV := R.(Variable)
 			if lV != rV {
-				sV := genUniqueVar()
+				sV := genGlobalVar(sCtx)
 				setVar(lV, sV, lCtx, sCtx)
 				setVar(rV, sV, rCtx, sCtx)
 				// Otherwise already matche
@@ -283,7 +348,7 @@ func matchTerm(L, R Term, lCtx, rCtx, sCtx Context) (succ bool) {
 	return false
 }
 
-func matchHead(ruleHead, formHead *ComplexTerm) (mRuleHead, mFormHead *ComplexTerm) {
+func matchHead(ruleHead, formHead *ComplexTerm) (mRuleCtx, mFormCtx Context) {
 	ruleCtx, formCtx, sCtx := make(Context), make(Context), make(Context)
 	for i, ruleArg := range ruleHead.Args {
 		formArg := formHead.Args[i]
@@ -292,24 +357,107 @@ func matchHead(ruleHead, formHead *ComplexTerm) (mRuleHead, mFormHead *ComplexTe
 		}
 	}
 
-	mRuleArgs := make([]Term, len(ruleHead.Args))
-	mFormArgs := make([]Term, len(formHead.Args))
-	
-	for i := range ruleHead.Args {
-		mRuleArgs[i] = fullInstantiate(ruleHead.Args[i], ruleCtx, sCtx)
-		mFormArgs[i] = fullInstantiate(formHead.Args[i], formCtx, sCtx)
+	for v, vl := range ruleCtx {
+		ruleCtx[v] = fullInstantiate(vl, ruleCtx, sCtx)
 	}
-	fmt.Println("ruleCtx:", ruleCtx, ", formCtx:", formCtx, ", sCtx:", sCtx)
-	
-	return NewComplexTerm(ruleHead.Functor, mRuleArgs...), NewComplexTerm(formHead.Functor, mFormArgs...)
+	for v, vl := range formCtx {
+		formCtx[v] = fullInstantiate(vl, formCtx, sCtx)
+	}
+
+	return ruleCtx, formCtx
 }
 
-func (m *Machine) Match(head *ComplexTerm, solutions chan *ComplexTerm) {
-	rules := m.rules[head.Key()]
+func mulContext(b, s Context) Context {
+	c := make(Context)
+	for v, vl := range b {
+		c[v] = vl
+	}
+	for v, vl := range s {
+		c[v] = vl
+	}
+
+	return c
+}
+
+func (m *Machine) proveGoal(goal Goal, ctx Context, solutions chan Context) {
+	switch goal.GoalType() {
+	case gtConj:
+		cg := goal.(ConjGoal)
+		if len(cg) == 0 {
+			solutions <- nil
+			close(solutions)
+			return
+		}
+		g := cg[0]
+		slns := make(chan Context)
+		go m.proveGoal(g, ctx, slns)
+		for dctx := range slns {
+			ctx2 := mulContext(ctx, dctx)
+			slns2 := make(chan Context)
+			go m.proveGoal(cg[1:], ctx2, slns2)
+			for dctx2 := range slns2 {
+				sln3 := mulContext(ctx2, dctx2)
+				solutions <- sln3
+			}
+		}
+		close(solutions)
+
+	case gtComplex:
+		ct := goal.(*ComplexTerm)
+		ct = fullInstantiate(ct, ctx, nil).(*ComplexTerm)
+
+		slns := make(chan Context)
+		go m.Match(ct, slns)
+		for dctx := range slns {
+			//fmt.Println(indent, "G", goal, ctx, ct, dctx)
+			ctx2 := mulContext(ctx, dctx)
+			solutions <- ctx2
+		}
+		close(solutions)
+
+	default:
+		panic(fmt.Sprintf("Goal not supported: %s", goal))
+	}
+}
+
+func subContext(aCtx, bCtx Context) Context {
+	cCtx := mulContext(aCtx, bCtx)
+	ctx := make(Context)
+	for v, vl := range aCtx {
+		ctx[v] = fullInstantiate(vl, cCtx, nil)
+	}
+
+	return ctx
+}
+
+var indent string
+
+func (m *Machine) Match(form *ComplexTerm, solutions chan Context) {
+	//fmt.Println(indent, "Match:", form)
+	indent += "    "
+	defer func() { indent = indent[:len(indent)-4] }()
+
+	rules := m.rules[form.Key()]
 	for _, rule := range rules {
-		_, mFormHead := matchHead(rule.head, head)
-		if mFormHead != nil {
-			solutions <- mFormHead
+		ruleCtx, formCtx := matchHead(rule.Head, form)
+		if formCtx == nil {
+			// head not matched
+			continue
+		}
+		//fmt.Println(indent, "Head", form, formCtx, rule.Head, ruleCtx)
+
+		if rule.Body == nil {
+			//fmt.Println(indent, form, "Fact", rule.Head, formCtx)
+			solutions <- formCtx
+			continue
+		}
+
+		slns := make(chan Context)
+		go m.proveGoal(rule.Body, ruleCtx, slns)
+		for dctx := range slns {
+			//fmt.Println(indent, "sln:", sln, mFormHead)
+			sln2 := subContext(formCtx, dctx)
+			solutions <- sln2
 		}
 	}
 	close(solutions)
