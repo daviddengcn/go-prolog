@@ -102,7 +102,7 @@ func TestRule(t *testing.T) {
 		CT("g", V("X")),
 		CT("h", V("X"))))
 
-	match(m, CT("all", V("Y")))
+	match(m, CT("all", V("X")))
 
 	fmt.Printf("Machine: %+v\n", m)
 }
@@ -116,7 +116,7 @@ func TestRule2(t *testing.T) {
 
 	m.AddRule(R(CT("descendant", V("X"), V("Y")),
 		CT("parent", V("X"), V("Y"))))
-		
+
 	m.AddRule(R(CT("descendant", V("X"), V("Y")),
 		CT("parent", V("X"), V("Z")),
 		CT("descendant", V("Z"), V("Y"))))

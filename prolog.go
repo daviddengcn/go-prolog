@@ -286,6 +286,17 @@ func fullInstantiate(t Term, lCtx, sCtx Context) Term {
 	return t
 }
 
+func sameVar(a, b Variable, sCtx Context) bool {
+	if _, ok := sCtx[a]; !ok {
+		return false
+	}
+	if _, ok := sCtx[b]; !ok {
+		return false
+	}
+
+	return a == b
+}
+
 func matchTerm(L, R Term, lCtx, rCtx, sCtx Context) (succ bool) {
 	if L.Type() == ttVar {
 		L = instantiate(L, lCtx, sCtx)
@@ -306,7 +317,7 @@ func matchTerm(L, R Term, lCtx, rCtx, sCtx Context) (succ bool) {
 		if R.Type() == ttVar {
 			// both Variable's
 			rV := R.(Variable)
-			if lV != rV {
+			if !sameVar(lV, rV, sCtx) {
 				sV := genGlobalVar(sCtx)
 				setVar(lV, sV, lCtx, sCtx)
 				setVar(rV, sV, rCtx, sCtx)
@@ -356,6 +367,7 @@ func matchHead(ruleHead, formHead *ComplexTerm) (mRuleCtx, mFormCtx Context) {
 			return nil, nil
 		}
 	}
+	//fmt.Println(indent, "rawHead", formCtx, ruleCtx);
 
 	for v, vl := range ruleCtx {
 		ruleCtx[v] = fullInstantiate(vl, ruleCtx, sCtx)
@@ -433,7 +445,7 @@ func subContext(aCtx, bCtx Context) Context {
 var indent string
 
 func (m *Machine) Match(form *ComplexTerm, solutions chan Context) {
-fmt.Println(indent, "Match:", form)
+	//fmt.Println(indent, "Match:", form)
 	indent += "    "
 	defer func() { indent = indent[:len(indent)-4] }()
 
@@ -444,7 +456,7 @@ fmt.Println(indent, "Match:", form)
 			// head not matched
 			continue
 		}
-fmt.Println(indent, "Head", form, formCtx, rule.Head, ruleCtx)
+		//fmt.Println(indent, "Head", form, formCtx, rule.Head, ruleCtx)
 
 		if rule.Body == nil {
 			//fmt.Println(indent, form, "Fact", rule.Head, formCtx)
