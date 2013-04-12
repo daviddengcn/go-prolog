@@ -24,15 +24,11 @@ func match(m *Machine, ct *ComplexTerm) {
 func TestFact(t *testing.T) {
 	m := NewMachine()
 
-	m.AddFact(CT("vertical",
-		CT("line",
-			CT("point", V("X"), V("Y")),
-			CT("point", V("X"), V("Z")))))
+	m.AddFact(CT("vertical", CT("line",
+		CT("point", V("X"), V("Y")), CT("point", V("X"), V("Z")))))
 
-	m.AddFact(CT("horizontal",
-		CT("line",
-			CT("point", V("X"), V("Y")),
-			CT("point", V("Z"), V("Y")))))
+	m.AddFact(CT("horizontal", CT("line",
+		CT("point", V("X"), V("Y")), CT("point", V("Z"), V("Y")))))
 
 	m.AddFact(CT("same", V("X"), V("X"), V("X")))
 
