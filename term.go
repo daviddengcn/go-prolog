@@ -135,7 +135,10 @@ func (ct *ComplexTerm) String() string {
 
 /* List term: List */
 type List []Term
-/* List represented as [Head|Tail]: HeadTail */
+/*
+	List represented as [Head|Tail]: HeadTail
+	HeadTail does not directly support [X, Y|Z], use [X|[Y|Z]] instead.
+*/
 type HeadTail struct{
 	Head Term
 	Tail Term

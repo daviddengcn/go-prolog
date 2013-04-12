@@ -148,15 +148,19 @@ func TestProgram_Rev(t *testing.T) {
 		Z = "Z"
 		W = "W"
 	)
+	reverse := func(args ...interface{}) *ComplexTerm {
+		return CT("reverse", args...)
+	}
 	
 	m := NewMachine()
 	
 	// reverse([], X, X).
-	m.AddFact(CT("reverse", L(), X, X))
-	// reverse([X|Y], Z, W) :- reverse(Y, [X|Z], W).
-	m.AddRule(R(CT("reverse", HT(X, Y), Z, W),
-		CT("reverse", Y, HT(X, Z), W)))
+	m.AddFact(reverse(L(), X, X))
+	// reverse([X|Y], Z, W) :-
+	//     reverse(Y, [X|Z], W).
+	m.AddRule(R(reverse(HT(X, Y), Z, W),
+		reverse(Y, HT(X, Z), W)))
 	
-	assertCount(t, 1, match(m, CT("reverse", L(), L(), X)))
-	assertCount(t, 1, match(m, CT("reverse", L("1", L("2"), "3"), L(), X)))
+	assertCount(t, 1, match(m, reverse(L(), L(), X)))
+	assertCount(t, 1, match(m, reverse(L("1", L("2"), "3"), L(), X)))
 }
