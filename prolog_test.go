@@ -5,19 +5,27 @@ import (
 	"testing"
 )
 
-func match(m *Machine, ct *ComplexTerm) {
+func match(m *Machine, ct *ComplexTerm) int {
 	slns := make(chan Context)
 	go m.Match(ct, slns)
 	fmt.Println("Match fact", ct, ": ")
-	found := false
+	count := 0
 	for sln := range slns {
-		found = true
+		count ++
 		fmt.Println("    For", sln)
 	}
-	if found {
+	if count > 0 {
 		fmt.Println()
 	} else {
 		fmt.Println("    false")
+	}
+	
+	return count
+}
+
+func assertCount(t *testing.T, exp, act int) {
+	if exp != act {
+		t.Errorf("Expected %d solutions, but got %d solutions.", exp, act)
 	}
 }
 
@@ -25,80 +33,90 @@ func TestFact(t *testing.T) {
 	m := NewMachine()
 
 	m.AddFact(CT("vertical", CT("line",
-		CT("point", V("X"), V("Y")), CT("point", V("X"), V("Z")))))
+		CT("point", "X", "Y"), CT("point", "X", "Z"))))
 
 	m.AddFact(CT("horizontal", CT("line",
-		CT("point", V("X"), V("Y")), CT("point", V("Z"), V("Y")))))
+		CT("point", "X", "Y"), CT("point", "Z", "Y"))))
 
-	m.AddFact(CT("same", V("X"), V("X"), V("X")))
+	m.AddFact(CT("same", "X", "X", "X"))
 
-	m.AddFact(CT("like", A("david"), A("food")))
-	m.AddFact(CT("like", A("david"), A("money")))
-	m.AddFact(CT("like", A("xmz"), A("money")))
-	m.AddFact(CT("like", A("xmz"), A("house")))
+	m.AddFact(CT("like", "david", "food"))
+	m.AddFact(CT("like", "david", "money"))
+	m.AddFact(CT("like", "xmz", "money"))
+	m.AddFact(CT("like", "xmz", "house"))
 
-	match(m, CT("vertical",
-		CT("line",
-			CT("point", A("1"), A("2")),
-			CT("point", A("1"), A("3")))))
+	// vertical(line(point(1, 2), point(1, 3)))
+	assertCount(t, 1, match(m,
+		CT("vertical",CT("line",
+			CT("point", "1", "2"),
+			CT("point", "1", "3")))))
 
-	match(m, CT("vertical",
-		CT("line",
-			CT("point", A("1"), A("2")),
-			CT("point", A("5"), A("3")))))
+	// vertical(line(point(1, 2), point(5, 3)))
+	assertCount(t, 0, match(m,
+		CT("vertical", CT("line",
+			CT("point", "1", "2"),
+			CT("point", "5", "3")))))
 
-	match(m, CT("vertical",
-		CT("line",
-			CT("point", A("1"), A("2")),
-			CT("point", V("Q"), A("3")))))
+	// vertical(line(point(1, 2), point(Q, 3)))
+	assertCount(t, 1, match(m,
+		CT("vertical", CT("line",
+			CT("point", "1", "2"),
+			CT("point", "Q", "3")))))
 
-	match(m, CT("vertical",
-		CT("line",
-			CT("point", A("1"), A("2")),
-			V("P"))))
+	// vertical(line(point(1, 2), P))
+	assertCount(t, 1, match(m,
+		CT("vertical", CT("line",
+			CT("point", "1", "2"), "P"))))
 
-	match(m, CT("vertical",
-		CT("line",
-			V("P"),
-			CT("point", A("1"), A("2")))))
+	// vertical(line(P, point(1, 2)))
+	assertCount(t, 1, match(m,
+		CT("vertical", CT("line",
+			"P", CT("point", "1", "2")))))
 
-	match(m, CT("vertical",
-		CT("line",
-			CT("point", A("1"), V("Y1")),
-			CT("point", V("X2"), V("Y2")))))
+	// vertical(line(point(1, Y1), point(X2, Y2)))
+	assertCount(t, 1, match(m,
+		CT("vertical", CT("line",
+			CT("point", "1", "Y1"),
+			CT("point", "X2", "Y2")))))
 
-	match(m, CT("vertical",
-		CT("line",
-			CT("point", V("X1"), A("1")),
-			CT("point", V("X2"), V("Y2")))))
+	// vertical(line(point(X1, 1), point(X2, Y2)))
+	assertCount(t, 1, match(m,
+		CT("vertical", CT("line",
+			CT("point", "X1", "1"),
+			CT("point", "X2", "Y2")))))
 
-	match(m, CT("same", V("A"), V("B"), V("C")))
-	match(m, CT("same", A("a"), V("B"), V("C")))
-	match(m, CT("like", A("david"), V("What")))
-	match(m, CT("like", V("Who"), A("money")))
-
-	match(m, CT("like", V("X"), V("Y")))
+	// same(A, B, C)
+	assertCount(t, 1, match(m, CT("same", "A", "B", "C")))
+	// same(a, B, C)
+	assertCount(t, 1, match(m, CT("same", "a", "B", "C")))
+	
+	// like(david, What)
+	assertCount(t, 2, match(m, CT("like", "david", "What")))
+	// like(Who, money)
+	assertCount(t, 2, match(m, CT("like", "Who", "money")))
+	// like(X, Y)
+	assertCount(t, 4, match(m, CT("like", "X", "Y")))
 
 	fmt.Printf("Machine: %+v\n", m)
 }
 
-func TestRule(t *testing.T) {
+func TestRule_Simple(t *testing.T) {
 	m := NewMachine()
 
-	m.AddFact(CT("f", A("a")))
-	m.AddFact(CT("f", A("b")))
+	m.AddFact(CT("f", "a"))
+	m.AddFact(CT("f", "b"))
 
-	m.AddFact(CT("g", A("a")))
-	m.AddFact(CT("g", A("b")))
+	m.AddFact(CT("g", "a"))
+	m.AddFact(CT("g", "b"))
 
-	m.AddFact(CT("h", A("b")))
+	m.AddFact(CT("h", "b"))
 
-	m.AddRule(R(CT("all", V("X")),
-		CT("f", V("X")),
-		CT("g", V("X")),
-		CT("h", V("X"))))
+	m.AddRule(R(CT("all", "X"),
+		CT("f", "X"),
+		CT("g", "X"),
+		CT("h", "X")))
 
-	match(m, CT("all", V("X")))
+	assertCount(t, 1, match(m, CT("all", "X")))
 
 	fmt.Printf("Machine: %+v\n", m)
 }
@@ -106,19 +124,39 @@ func TestRule(t *testing.T) {
 func TestRule2(t *testing.T) {
 	m := NewMachine()
 
-	m.AddFact(CT("parent", A("david"), A("xiaoxi")))
-	m.AddFact(CT("parent", A("laotaiye"), A("david")))
-	m.AddFact(CT("parent", A("laolaotaiye"), A("laotaiye")))
+	m.AddFact(CT("parent", "david", "xiaoxi"))
+	m.AddFact(CT("parent", "laotaiye", "david"))
+	m.AddFact(CT("parent", "laolaotaiye", "laotaiye"))
 
-	m.AddRule(R(CT("descendant", V("X"), V("Y")),
-		CT("parent", V("X"), V("Y"))))
+	m.AddRule(R(CT("descendant", "X", "Y"),
+		CT("parent", "X", "Y")))
 
-	m.AddRule(R(CT("descendant", V("X"), V("Y")),
-		CT("parent", V("X"), V("Z")),
-		CT("descendant", V("Z"), V("Y"))))
+	m.AddRule(R(CT("descendant", "X", "Y"),
+		CT("parent", "X", "Z"),
+		CT("descendant", "Z", "Y")))
 
-	match(m, CT("parent", V("X"), V("Y")))
-	match(m, CT("descendant", V("P"), V("Q")))
+	assertCount(t, 3, match(m, CT("parent", "X", "Y")))
+	assertCount(t, 6, match(m, CT("descendant", "P", "Q")))
 
 	fmt.Printf("Machine: %+v\n", m)
+}
+
+func TestProgram_Rev(t *testing.T) {
+	const(
+		X = "X"
+		Y = "Y"
+		Z = "Z"
+		W = "W"
+	)
+	
+	m := NewMachine()
+	
+	// reverse([], X, X).
+	m.AddFact(CT("reverse", L(), X, X))
+	// reverse([X|Y], Z, W) :- reverse(Y, [X|Z], W).
+	m.AddRule(R(CT("reverse", HT(X, Y), Z, W),
+		CT("reverse", Y, HT(X, Z), W)))
+	
+	assertCount(t, 1, match(m, CT("reverse", L(), L(), X)))
+	assertCount(t, 1, match(m, CT("reverse", L("1", L("2"), "3"), L(), X)))
 }
