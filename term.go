@@ -16,6 +16,7 @@ const (
 
 type Term interface {
 	Type() int
+	repQueryVars(bds Bindings) (newT Term)
 }
 
 func isPrologVariableStart(c byte) bool {
@@ -26,7 +27,7 @@ func TermFromString(s string) Term {
 	if len(s) > 0 && isPrologVariableStart(s[0]) {
 		return V(s)
 	}
-	
+
 	return A(s)
 }
 
@@ -34,7 +35,7 @@ func term(t interface{}) Term {
 	switch vl := t.(type) {
 	case string:
 		return TermFromString(vl)
-		
+
 	case Term:
 		return vl
 	}
@@ -51,6 +52,10 @@ func A(str string) Atom {
 
 func (at Atom) Type() int {
 	return ttAtom
+}
+
+func (at Atom) repQueryVars(bds Bindings) Term {
+	return at
 }
 
 /* Variable term: Variable */
@@ -73,6 +78,17 @@ func _v(str string) Variable {
 
 func (v Variable) Type() int {
 	return ttVar
+}
+
+func (v Variable) repQueryVars(bds Bindings) Term {
+	newV, ok := bds[v]
+	if ok {
+		return newV
+	}
+	newV = genUniqueVar()
+	bds[v] = newV
+
+	return newV
 }
 
 var gUniqueVarChan chan Variable
@@ -113,6 +129,14 @@ func (ct *ComplexTerm) Type() int {
 	return ttComplex
 }
 
+func (ct *ComplexTerm) repQueryVars(bds Bindings) Term {
+	newCt := &ComplexTerm{Functor: ct.Functor, Args: make([]Term, len(ct.Args))}
+	for i, arg := range ct.Args {
+		newCt.Args[i] = arg.repQueryVars(bds)
+	}
+	return newCt
+}
+
 func (ct *ComplexTerm) Key() string {
 	return fmt.Sprintf("%s/%d", ct.Functor, len(ct.Args))
 }
@@ -135,11 +159,12 @@ func (ct *ComplexTerm) String() string {
 
 /* List term: List */
 type List []Term
+
 /*
 	List represented as [Head|Tail]: HeadTail
 	HeadTail does not directly support [X, Y|Z], use [X|[Y|Z]] instead.
 */
-type HeadTail struct{
+type HeadTail struct {
 	Head Term
 	Tail Term
 }
@@ -148,12 +173,20 @@ func (l List) Type() int {
 	return ttList
 }
 
+func (l List) repQueryVars(bds Bindings) Term {
+	newL := make(List, len(l))
+	for i, el := range l {
+		newL[i] = el.repQueryVars(bds)
+	}
+	return newL
+}
+
 func L(terms ...interface{}) (l List) {
-	l = make([]Term, len(terms))
+	l = make(List, len(terms))
 	for i, t := range terms {
 		l[i] = term(t)
 	}
-	
+
 	return l
 }
 
@@ -167,4 +200,9 @@ func HT(head, tail interface{}) HeadTail {
 
 func (l HeadTail) String() string {
 	return fmt.Sprintf("[%s|%s]", l.Head, l.Tail)
+}
+
+func (l HeadTail) repQueryVars(bds Bindings) Term {
+	return HeadTail{Head: l.Head.repQueryVars(bds),
+		Tail: l.Tail.repQueryVars(bds)}
 }

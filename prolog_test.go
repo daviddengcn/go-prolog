@@ -6,12 +6,12 @@ import (
 )
 
 func match(m *Machine, ct *ComplexTerm) int {
-	slns := make(chan Context)
+	slns := make(chan Bindings)
 	go m.Match(ct, slns)
 	fmt.Println("Match fact", ct, ": ")
 	count := 0
 	for sln := range slns {
-		count ++
+		count++
 		fmt.Println("    For", sln)
 	}
 	if count > 0 {
@@ -19,7 +19,7 @@ func match(m *Machine, ct *ComplexTerm) int {
 	} else {
 		fmt.Println("    false")
 	}
-	
+
 	return count
 }
 
@@ -47,7 +47,7 @@ func TestFact(t *testing.T) {
 
 	// vertical(line(point(1, 2), point(1, 3)))
 	assertCount(t, 1, match(m,
-		CT("vertical",CT("line",
+		CT("vertical", CT("line",
 			CT("point", "1", "2"),
 			CT("point", "1", "3")))))
 
@@ -89,7 +89,7 @@ func TestFact(t *testing.T) {
 	assertCount(t, 1, match(m, CT("same", "A", "B", "C")))
 	// same(a, B, C)
 	assertCount(t, 1, match(m, CT("same", "a", "B", "C")))
-	
+
 	// like(david, What)
 	assertCount(t, 2, match(m, CT("like", "david", "What")))
 	// like(Who, money)
@@ -142,7 +142,7 @@ func TestRule2(t *testing.T) {
 }
 
 func TestProgram_Rev(t *testing.T) {
-	const(
+	const (
 		X = "X"
 		Y = "Y"
 		Z = "Z"
@@ -151,16 +151,16 @@ func TestProgram_Rev(t *testing.T) {
 	reverse := func(args ...interface{}) *ComplexTerm {
 		return CT("reverse", args...)
 	}
-	
+
 	m := NewMachine()
-	
+
 	// reverse([], X, X).
 	m.AddFact(reverse(L(), X, X))
 	// reverse([X|Y], Z, W) :-
 	//     reverse(Y, [X|Z], W).
 	m.AddRule(R(reverse(HT(X, Y), Z, W),
 		reverse(Y, HT(X, Z), W)))
-	
+
 	assertCount(t, 1, match(m, reverse(L(), L(), X)))
 	assertCount(t, 1, match(m, reverse(L("1", L("2"), "3"), L(), X)))
 }
