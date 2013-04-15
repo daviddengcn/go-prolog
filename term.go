@@ -16,6 +16,7 @@ const (
 
 type Term interface {
 	Type() int
+	// replace query variabls
 	repQueryVars(bds Bindings) (newT Term)
 	
 	// l: the receiver
@@ -210,15 +211,6 @@ func (l *ComplexTerm) Match(R Term, bds Bindings) bool {
 /* List term: List */
 type List []Term
 
-/*
-	List represented as [Head|Tail]: HeadTail
-	HeadTail does not directly support [X, Y|Z], use [X|[Y|Z]] instead.
-*/
-type HeadTail struct {
-	Head Term
-	Tail Term
-}
-
 func L(terms ...interface{}) (l List) {
 	l = make(List, len(terms))
 	for i, t := range terms {
@@ -263,13 +255,22 @@ func (l List) Match(R Term, bds Bindings) bool {
 	
 	return true
 }
-	
-func (l HeadTail) Type() int {
-	return ttList
+
+/*
+	List represented as [Head|Tail]: HeadTail
+	HeadTail does not directly support [X, Y|Z], use [X|[Y|Z]] instead.
+*/
+type HeadTail struct {
+	Head Term
+	Tail Term
 }
 
 func HT(head, tail interface{}) HeadTail {
 	return HeadTail{Head: term(head), Tail: term(tail)}
+}
+	
+func (l HeadTail) Type() int {
+	return ttList
 }
 
 func (l HeadTail) String() string {
@@ -312,6 +313,54 @@ func (l HeadTail) Match(R Term, bds Bindings) bool {
 	
 	return true
 }
+
+/* First-left atom: FirstLeft */
+type FirstLeft struct {
+	First, Left Term
+}
+
+func FL(first, left interface{}) FirstLeft {
+	return FirstLeft{First: term(first), Left: term(left)}
+}
+
+func (at FirstLeft) Type() int {
+	return ttAtom
+}
+
+func (at FirstLeft) repQueryVars(bds Bindings) Term {
+	return FirstLeft{First: at.First.repQueryVars(bds),
+		Left: at.Left.repQueryVars(bds)}
+}
+
+func (l FirstLeft) Match(R Term, bds Bindings) bool {
+	if R.Type() != ttAtom {
+		return false
+	}
+	
+	switch r := R.(type) {
+	case Atom:
+		if len(r) < 1 {
+			return false
+		}
+		
+		if !matchTerm(l.First, Atom(r[0:1]), bds) {
+			return false
+		}
+		if !matchTerm(l.Left, Atom(r[1:]), bds) {
+			return false
+		}
+	case FirstLeft:
+		if !matchTerm(l.First, r.First, bds) {
+			return false
+		}
+		if !matchTerm(l.Left, r.Left, bds) {
+			return false
+		}
+	}
+	
+	return true
+}
+
 /* Bindings */
 
 type Bindings map[Variable]Term
@@ -338,6 +387,7 @@ func (bds Bindings) unify(t Term) Term {
 			newArgs[i] = bds.unify(arg)
 		}
 		return &ComplexTerm{Functor: ct.Functor, Args: newArgs}
+		
 	case ttList:
 		switch l := t.(type) {
 		case List:
@@ -354,6 +404,23 @@ func (bds Bindings) unify(t Term) Term {
 				return append(List{head}, tl...)
 			}
 			return HeadTail{Head: head, Tail: tail}
+		}
+		
+	case ttAtom:
+		switch l := t.(type) {
+		case Atom:
+			return t
+			
+		case FirstLeft:
+			first := bds.unify(l.First)
+			left := bds.unify(l.Left)
+			
+			if fst, ok := first.(Atom); ok {
+				if lft, ok := left.(Atom); ok {
+					return fst + lft
+				}
+			}
+			return FirstLeft{First: first, Left: left}
 		}
 	}
 

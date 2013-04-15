@@ -5,13 +5,19 @@ import (
 	"testing"
 )
 
+func ctFunc(name Atom) func(args ...interface{}) *ComplexTerm {
+	return func(args ...interface{}) *ComplexTerm {
+		return CT(name, args...)
+	}
+}
+
 func match(m *Machine, ct *ComplexTerm) int {
 	slns := make(chan Bindings)
 	go m.Match(ct, slns)
 	fmt.Println("Match fact", ct, ": ")
 	count := 0
 	for sln := range slns {
-		count++
+		count ++
 		fmt.Println("    For", sln)
 	}
 	if count > 0 {
@@ -19,7 +25,7 @@ func match(m *Machine, ct *ComplexTerm) int {
 	} else {
 		fmt.Println("    false")
 	}
-
+	
 	return count
 }
 
@@ -29,73 +35,69 @@ func assertCount(t *testing.T, exp, act int) {
 	}
 }
 
+const(
+	B = "B"
+	C = "C"
+	D = "D"
+	P = "P"
+	Q = "Q"
+	W = "W"
+	X = "X"
+	Y = "Y"
+	Z = "Z"
+	X1 = "X1"
+	Y1 = "Y1"
+	X2 = "X2"
+	Y2 = "Y2"
+)
+	
 func TestFact(t *testing.T) {
 	m := NewMachine()
+	
+	line := ctFunc("line")
+	point := ctFunc("point")
+	vertical := ctFunc("vertical")
+	horizontal := ctFunc("horizontal")
+	same := ctFunc("same")
+	like := ctFunc("like")
 
-	m.AddFact(CT("vertical", CT("line",
-		CT("point", "X", "Y"), CT("point", "X", "Z"))))
+	m.AddFact(vertical(line(point(X, Y), point(X, Z))))
+	m.AddFact(horizontal(line(point(X, Y), point(Z, Y))))
 
-	m.AddFact(CT("horizontal", CT("line",
-		CT("point", "X", "Y"), CT("point", "Z", "Y"))))
+	m.AddFact(same(X, X, X))
 
-	m.AddFact(CT("same", "X", "X", "X"))
+	m.AddFact(like("david", "food"))
+	m.AddFact(like("david", "money"))
+	m.AddFact(like("xmz", "money"))
+	m.AddFact(like("xmz", "house"))
 
-	m.AddFact(CT("like", "david", "food"))
-	m.AddFact(CT("like", "david", "money"))
-	m.AddFact(CT("like", "xmz", "money"))
-	m.AddFact(CT("like", "xmz", "house"))
-
-	// vertical(line(point(1, 2), point(1, 3)))
 	assertCount(t, 1, match(m,
-		CT("vertical", CT("line",
-			CT("point", "1", "2"),
-			CT("point", "1", "3")))))
+		vertical(line(point("1", "2"), point("1", "3")))))
 
-	// vertical(line(point(1, 2), point(5, 3)))
 	assertCount(t, 0, match(m,
-		CT("vertical", CT("line",
-			CT("point", "1", "2"),
-			CT("point", "5", "3")))))
+		vertical(line(point("1", "2"), point("5", "3")))))
 
-	// vertical(line(point(1, 2), point(Q, 3)))
 	assertCount(t, 1, match(m,
-		CT("vertical", CT("line",
-			CT("point", "1", "2"),
-			CT("point", "Q", "3")))))
+		vertical(line(point("1", "2"), point(Q, "3")))))
 
-	// vertical(line(point(1, 2), P))
 	assertCount(t, 1, match(m,
-		CT("vertical", CT("line",
-			CT("point", "1", "2"), "P"))))
+		vertical(line(point("1", "2"), P))))
 
-	// vertical(line(P, point(1, 2)))
 	assertCount(t, 1, match(m,
-		CT("vertical", CT("line",
-			"P", CT("point", "1", "2")))))
+		vertical(line(P, point("1", "2")))))
 
-	// vertical(line(point(1, Y1), point(X2, Y2)))
 	assertCount(t, 1, match(m,
-		CT("vertical", CT("line",
-			CT("point", "1", "Y1"),
-			CT("point", "X2", "Y2")))))
+		vertical(line(point("1", Y1), point("X2", "Y2")))))
 
-	// vertical(line(point(X1, 1), point(X2, Y2)))
 	assertCount(t, 1, match(m,
-		CT("vertical", CT("line",
-			CT("point", "X1", "1"),
-			CT("point", "X2", "Y2")))))
+		vertical(line(point(X1, "1"), point(X2, Y2)))))
 
-	// same(A, B, C)
-	assertCount(t, 1, match(m, CT("same", "A", "B", "C")))
-	// same(a, B, C)
-	assertCount(t, 1, match(m, CT("same", "a", "B", "C")))
-
-	// like(david, What)
-	assertCount(t, 2, match(m, CT("like", "david", "What")))
-	// like(Who, money)
-	assertCount(t, 2, match(m, CT("like", "Who", "money")))
-	// like(X, Y)
-	assertCount(t, 4, match(m, CT("like", "X", "Y")))
+	assertCount(t, 1, match(m, same(B, C, D)))
+	assertCount(t, 1, match(m, same("a", C, D)))
+	
+	assertCount(t, 2, match(m, like("david", "What")))
+	assertCount(t, 2, match(m, like("Who", "money")))
+	assertCount(t, 4, match(m, like(X, Y)))
 
 	fmt.Printf("Machine: %+v\n", m)
 }
@@ -103,64 +105,75 @@ func TestFact(t *testing.T) {
 func TestRule_Simple(t *testing.T) {
 	m := NewMachine()
 
-	m.AddFact(CT("f", "a"))
-	m.AddFact(CT("f", "b"))
+	f := ctFunc("f")
+	g := ctFunc("g")
+	h := ctFunc("h")
+	all := ctFunc("all")
+	
+	m.AddFact(f("a"))
+	m.AddFact(f("b"))
 
-	m.AddFact(CT("g", "a"))
-	m.AddFact(CT("g", "b"))
+	m.AddFact(g("a"))
+	m.AddFact(g("b"))
 
-	m.AddFact(CT("h", "b"))
+	m.AddFact(h("b"))
 
-	m.AddRule(R(CT("all", "X"),
-		CT("f", "X"),
-		CT("g", "X"),
-		CT("h", "X")))
+	m.AddRule(R(all(X),
+		f(X),
+		g(X),
+		h(X)))
 
-	assertCount(t, 1, match(m, CT("all", "X")))
+	assertCount(t, 1, match(m, all(X)))
 
 	fmt.Printf("Machine: %+v\n", m)
 }
 
 func TestRule2(t *testing.T) {
 	m := NewMachine()
+	
+	parent := ctFunc("parent")
+	descendant := ctFunc("descendant")
 
-	m.AddFact(CT("parent", "david", "xiaoxi"))
-	m.AddFact(CT("parent", "laotaiye", "david"))
-	m.AddFact(CT("parent", "laolaotaiye", "laotaiye"))
+	m.AddFact(parent("david", "xiaoxi"))
+	m.AddFact(parent("laotaiye", "david"))
+	m.AddFact(parent("laolaotaiye", "laotaiye"))
 
-	m.AddRule(R(CT("descendant", "X", "Y"),
-		CT("parent", "X", "Y")))
+	m.AddRule(R(descendant(X, Y), parent(X, Y)))
 
-	m.AddRule(R(CT("descendant", "X", "Y"),
-		CT("parent", "X", "Z"),
-		CT("descendant", "Z", "Y")))
+	m.AddRule(R(descendant(X, Y),
+		parent(X, Z),
+		descendant(Z, Y)))
 
-	assertCount(t, 3, match(m, CT("parent", "X", "Y")))
-	assertCount(t, 6, match(m, CT("descendant", "P", "Q")))
+	assertCount(t, 3, match(m, parent(X, Y)))
+	assertCount(t, 6, match(m, descendant(P, Q)))
 
 	fmt.Printf("Machine: %+v\n", m)
 }
 
 func TestProgram_Rev(t *testing.T) {
-	const (
-		X = "X"
-		Y = "Y"
-		Z = "Z"
-		W = "W"
-	)
-	reverse := func(args ...interface{}) *ComplexTerm {
-		return CT("reverse", args...)
-	}
-
+	reverse := ctFunc("reverse")
+	
 	m := NewMachine()
-
+	
 	// reverse([], X, X).
 	m.AddFact(reverse(L(), X, X))
 	// reverse([X|Y], Z, W) :-
 	//     reverse(Y, [X|Z], W).
 	m.AddRule(R(reverse(HT(X, Y), Z, W),
 		reverse(Y, HT(X, Z), W)))
-
+	
 	assertCount(t, 1, match(m, reverse(L(), L(), X)))
 	assertCount(t, 1, match(m, reverse(L("1", L("2"), "3"), L(), X)))
+}
+
+func TestFirstLeft(t *testing.T) {
+	reverse := ctFunc("reverse")
+	
+	m := NewMachine()
+	m.AddFact(reverse("", X, X))
+	m.AddRule(R(reverse(FL(X, Y), Z, W),
+		reverse(Y, FL(X, Z), W)))
+		
+	assertCount(t, 1, match(m, reverse("", "", X)))
+	assertCount(t, 1, match(m, reverse("abc", "", X)))
 }
