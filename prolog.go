@@ -24,6 +24,7 @@ const (
 	gtDisj
 	gtComplex // *ComplexTerm
 	gtMatch   // Term = Term
+	gtIf      // If()Then()Else()
 )
 
 type Goal interface {
@@ -123,6 +124,7 @@ func (m *Machine) AddRule(rule Rule) {
 	fmt.Println(appendIndent(fmt.Sprint(rule), "    ") + "\n")
 }
 
+// returns nil if not matched
 func matchHead(rule, q *ComplexTerm) (bds Bindings) {
 	bds = make(Bindings)
 	for i, ruleArg := range rule.Args {
@@ -135,8 +137,10 @@ func matchHead(rule, q *ComplexTerm) (bds Bindings) {
 	return bds
 }
 
-// proveGoal tries prove the goal under curtain context, push the solutions to the channel.
-func (m *Machine) proveGoal(goal Goal, bds Bindings, solutions chan Bindings) {
+// prove tries prove the goal send solution Bindings to the channel. After all
+// solutions are sent, the channel is closed.
+// return when all solutions are received. Often called in a go routine.
+func (m *Machine) prove(goal Goal, bds Bindings, solutions chan Bindings) {
 	switch goal.GoalType() {
 	case gtConj:
 		cg := goal.(ConjGoal)
@@ -147,11 +151,11 @@ func (m *Machine) proveGoal(goal Goal, bds Bindings, solutions chan Bindings) {
 		}
 		g := cg[0]
 		slns := make(chan Bindings)
-		go m.proveGoal(g, bds, slns)
+		go m.prove(g, bds, slns)
 		for sln := range slns {
 			bds2 := bds.combine(sln)
 			slns2 := make(chan Bindings)
-			go m.proveGoal(cg[1:], bds2, slns2)
+			go m.prove(cg[1:], bds2, slns2)
 			for sln2 := range slns2 {
 				solutions <- sln.combine(sln2)
 			}
@@ -211,7 +215,7 @@ func (m *Machine) Match(query *ComplexTerm, solutions chan Bindings) {
 		}
 
 		slns := make(chan Bindings)
-		go m.proveGoal(rule.Body, hdBds, slns)
+		go m.prove(rule.Body, hdBds, slns)
 		for sln := range slns {
 			//fmt.Println(indent, "sln:", sln, mFormHead)
 			solutions <- calcSolution(inBds, hdBds.combine(sln))
