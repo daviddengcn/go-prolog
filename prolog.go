@@ -123,177 +123,6 @@ func (m *Machine) AddRule(rule Rule) {
 	fmt.Println(appendIndent(fmt.Sprint(rule), "    ") + "\n")
 }
 
-type Bindings map[Variable]Term
-
-func (bds Bindings) unifyVar(t Term) Term {
-	for t.Type() == ttVar {
-		v := t.(Variable)
-		i := bds[v];
-		if i == nil {
-			break
-		}
-		t = i
-	}
-	return t
-}
-
-func (bds Bindings) unify(t Term) Term {
-	t = bds.unifyVar(t)
-	switch t.Type() {
-	case ttComplex:
-		ct := t.(*ComplexTerm)
-		newArgs := make([]Term, len(ct.Args))
-		for i, arg := range ct.Args {
-			newArgs[i] = bds.unify(arg)
-		}
-		return &ComplexTerm{Functor: ct.Functor, Args: newArgs}
-	case ttList:
-		switch l := t.(type) {
-		case List:
-			newL := make(List, len(l))
-			for i, el := range l {
-				newL[i] = bds.unify(el)
-			}
-			return newL
-			
-		case HeadTail:
-			head := bds.unify(l.Head)
-			tail := bds.unify(l.Tail)
-			if tl, ok := tail.(List); ok {
-				return append(List{head}, tl...)
-			}
-			return HeadTail{Head: head, Tail: tail}
-		}
-	}
-
-	return t
-}
-
-func matchTerm(L, R Term, bds Bindings) (succ bool) {
-	if L.Type() == ttVar {
-		L = bds.unifyVar(L)
-	}
-	if R.Type() == ttVar {
-		R = bds.unifyVar(R)
-	}
-
-	// clause 1
-	if L.Type() == ttAtom && R.Type() == ttAtom {
-		l, r := L.(Atom), R.(Atom)
-		return l == r
-	}
-
-	// clause 2
-	if L.Type() == ttVar {
-		lV := L.(Variable)
-		if R.Type() == ttVar {
-			// both Variable's
-			rV := R.(Variable)
-			if lV != rV {
-				sV := genUniqueVar()
-				bds[lV] = sV
-				bds[rV] = sV
-				// Otherwise already matche
-			}
-		} else {
-			// lV <= R
-			bds[lV] = R
-		}
-		return true
-	}
-
-	if R.Type() == ttVar {
-		// L => rV
-		rV := R.(Variable)
-		bds[rV] = L
-		return true
-	}
-
-	// clause 3
-	if L.Type() == ttComplex && R.Type() == ttComplex {
-		cL, cR := L.(*ComplexTerm), R.(*ComplexTerm)
-		if cL.Functor != cR.Functor || len(cL.Args) != len(cR.Args) {
-			return false
-		}
-
-		for i, lArg := range cL.Args {
-			rArg := cR.Args[i]
-			if !matchTerm(lArg, rArg, bds) {
-				return false
-			}
-		}
-
-		return true
-	}
-	
-	// list
-	if L.Type() == ttList && R.Type() == ttList {
-		switch l := L.(type) {
-		case List:
-			switch r := R.(type) {
-			case List:
-				// List = List
-				if len(l) != len(r) {
-					return false
-				}
-				
-				for i, lEl := range l {
-					rEl := r[i]
-					if !matchTerm(lEl, rEl, bds) {
-						return false
-					}
-				}
-				
-				return true
-				
-			case HeadTail:
-				if len(l) == 0 {
-					return false
-				}
-				
-				if !matchTerm(l[0], r.Head, bds) {
-					return false
-				}
-				
-				if !matchTerm(l[1:], r.Tail, bds) {
-					return false
-				}
-				
-				return true
-			}
-		case HeadTail:
-			switch r := R.(type) {
-			case List:
-				if len(r) == 0 {
-					return false
-				}
-				
-				if !matchTerm(l.Head, r[0], bds) {
-					return false
-				}
-				
-				if !matchTerm(l.Tail, r[1:], bds) {
-					return false
-				}
-				
-				return true
-				
-			case HeadTail:
-				if !matchTerm(l.Head, r.Head, bds) {
-					return false
-				}
-				if !matchTerm(l.Tail, r.Tail, bds) {
-					return false
-				}
-				
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
 func matchHead(rule, q *ComplexTerm) (bds Bindings) {
 	bds = make(Bindings)
 	for i, ruleArg := range rule.Args {
@@ -304,18 +133,6 @@ func matchHead(rule, q *ComplexTerm) (bds Bindings) {
 	}
 
 	return bds
-}
-
-func mulContext(b, s Bindings) Bindings {
-	c := make(Bindings)
-	for v, vl := range b {
-		c[v] = vl
-	}
-	for v, vl := range s {
-		c[v] = vl
-	}
-
-	return c
 }
 
 // proveGoal tries prove the goal under curtain context, push the solutions to the channel.
@@ -331,13 +148,12 @@ func (m *Machine) proveGoal(goal Goal, bds Bindings, solutions chan Bindings) {
 		g := cg[0]
 		slns := make(chan Bindings)
 		go m.proveGoal(g, bds, slns)
-		for dctx := range slns {
-			ctx2 := mulContext(bds, dctx)
+		for sln := range slns {
+			bds2 := bds.combine(sln)
 			slns2 := make(chan Bindings)
-			go m.proveGoal(cg[1:], ctx2, slns2)
-			for dctx2 := range slns2 {
-				sln3 := mulContext(ctx2, dctx2)
-				solutions <- sln3
+			go m.proveGoal(cg[1:], bds2, slns2)
+			for sln2 := range slns2 {
+				solutions <- sln.combine(sln2)
 			}
 		}
 		close(solutions)
@@ -349,9 +165,8 @@ func (m *Machine) proveGoal(goal Goal, bds Bindings, solutions chan Bindings) {
 		slns := make(chan Bindings)
 		go m.Match(ct, slns)
 		for dctx := range slns {
-			//fmt.Println(indent, "G", goal, ctx, ct, dctx)
-			ctx2 := mulContext(bds, dctx)
-			solutions <- ctx2
+//			fmt.Println(indent, "G CT", goal, bds, ct, dctx)
+			solutions <- dctx
 		}
 		close(solutions)
 
@@ -360,10 +175,10 @@ func (m *Machine) proveGoal(goal Goal, bds Bindings, solutions chan Bindings) {
 	}
 }
 
-func calcSolution(inBds, mBds Bindings) (sln Bindings) {
+func calcSolution(inBds, bds Bindings) (sln Bindings) {
 	sln = make(Bindings)
 	for v, vl := range inBds {
-		sln[v] = mBds.unify(vl.(Variable))
+		sln[v] = bds.unify(vl)
 	}
 	
 	return sln
@@ -376,7 +191,7 @@ func (m *Machine) Match(query *ComplexTerm, solutions chan Bindings) {
 	inBds := make(Bindings)
 	// localized query
 	lq := query.repQueryVars(inBds).(*ComplexTerm)
-	fmt.Println(indent, "Match:", query, lq)
+	//fmt.Println(indent, "Match:", query, lq)
 	indent += "    "
 	defer func() { indent = indent[:len(indent)-4] }()
 
@@ -397,9 +212,9 @@ func (m *Machine) Match(query *ComplexTerm, solutions chan Bindings) {
 
 		slns := make(chan Bindings)
 		go m.proveGoal(rule.Body, hdBds, slns)
-		for dctx := range slns {
+		for sln := range slns {
 			//fmt.Println(indent, "sln:", sln, mFormHead)
-			solutions <- calcSolution(inBds, dctx)
+			solutions <- calcSolution(inBds, hdBds.combine(sln))
 		}
 	}
 	close(solutions)
@@ -408,4 +223,3 @@ func (m *Machine) Match(query *ComplexTerm, solutions chan Bindings) {
 func NewMachine() *Machine {
 	return &Machine{rules: map[string][]Rule{}}
 }
- 
