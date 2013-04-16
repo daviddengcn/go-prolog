@@ -72,7 +72,10 @@ func TestFact(t *testing.T) {
 	m.AddFact(like("xmz", "house"))
 
 	assertCount(t, 1, match(m,
-		vertical(line(point("1", "2"), point("1", "3")))))
+		vertical(line(point(1, 2), point(1, 3)))))
+
+	assertCount(t, 0, match(m,
+		vertical(line(point(1, 2), point("1", 3)))))
 
 	assertCount(t, 0, match(m,
 		vertical(line(point("1", "2"), point("5", "3")))))
@@ -164,6 +167,8 @@ func TestProgram_Rev(t *testing.T) {
 	
 	assertCount(t, 1, match(m, reverse(L(), L(), X)))
 	assertCount(t, 1, match(m, reverse(L("1", L("2"), "3"), L(), X)))
+
+	fmt.Printf("Machine: %+v\n", m)
 }
 
 func TestFirstLeft(t *testing.T) {
@@ -176,4 +181,6 @@ func TestFirstLeft(t *testing.T) {
 		
 	assertCount(t, 1, match(m, reverse("", "", X)))
 	assertCount(t, 1, match(m, reverse("abc", "", X)))
+
+	fmt.Printf("Machine: %+v\n", m)
 }

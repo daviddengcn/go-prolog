@@ -88,7 +88,7 @@ func R(head *ComplexTerm, goals ...Goal) Rule {
 	switch len(goals) {
 	case 0:
 		return Rule{Head: head}
-		
+
 	case 1:
 		return Rule{Head: head, Body: goals[0]}
 	}
@@ -164,12 +164,12 @@ func (m *Machine) prove(goal Goal, bds Bindings, solutions chan Bindings) {
 
 	case gtComplex:
 		ct := goal.(*ComplexTerm)
-		ct = bds.unify(ct).(*ComplexTerm)
+		ct = ct.unify(bds).(*ComplexTerm)
 
 		slns := make(chan Bindings)
 		go m.Match(ct, slns)
 		for dctx := range slns {
-//			fmt.Println(indent, "G CT", goal, bds, ct, dctx)
+			//			fmt.Println(indent, "G CT", goal, bds, ct, dctx)
 			solutions <- dctx
 		}
 		close(solutions)
@@ -182,9 +182,9 @@ func (m *Machine) prove(goal Goal, bds Bindings, solutions chan Bindings) {
 func calcSolution(inBds, bds Bindings) (sln Bindings) {
 	sln = make(Bindings)
 	for v, vl := range inBds {
-		sln[v] = bds.unify(vl)
+		sln[v] = vl.unify(bds)
 	}
-	
+
 	return sln
 }
 
