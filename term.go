@@ -14,6 +14,7 @@ const (
 	ttVar            // Variable
 	ttComplex        // *ComplexTerm
 	ttList           // List, HeadTail
+	ttBuildin        // Buildin operators
 )
 
 type Term interface {
@@ -49,7 +50,7 @@ func term(t interface{}) Term {
 		return Integer(vl)
 	case int64:
 		return Integer(vl)
-		
+
 	case string:
 		return TermFromString(vl)
 
@@ -73,7 +74,7 @@ func (at Atom) String() string {
 			return strconv.Quote(string(at))
 		}
 	}
-	
+
 	return string(at)
 }
 
@@ -117,11 +118,11 @@ func (l Integer) Match(R Term, bds Bindings) bool {
 	if R.Type() == ttAtom {
 		return false
 	}
-	
+
 	if r, ok := R.(Integer); ok {
 		return l == r
 	}
-	
+
 	return R.Match(l, bds)
 }
 
@@ -469,6 +470,160 @@ func (at FirstLeft) unify(bds Bindings) Term {
 	return FirstLeft{First: first, Left: left}
 }
 
+const (
+	opGt = iota // >
+	opGe        // >=
+	opLt        // <
+	opLe        // <=
+	opNe        // !=
+	
+	opIs        // is
+	
+	opPlus      // +
+	opMinus     // -
+	opMul       // *
+	opDiv       // /
+)
+
+var OpNames map[int]string = map[int]string{
+	opGt: ">",
+	opGe: ">=",
+	opLt: "<",
+	opLe: "<=",
+	opNe: "!=",
+	
+	opIs: "is",
+	
+	opPlus: "+",
+	opMinus: "-",
+	opMul: "*",
+	opDiv: "/",
+}
+
+/* buildin/2: *buildin2 */
+
+type buildin2 struct {
+	Op   int
+	L, R Term
+}
+
+
+func Op(l, op, r interface{}) *buildin2 {
+	res := buildin2{L: term(l), R: term(r)}
+	switch op.(string) {
+	case ">":
+		res.Op = opGt
+		
+	case ">=", "=>":
+		res.Op = opGe
+		
+	case "<":
+		res.Op = opLt
+		
+	case "<=", "=<":
+		res.Op = opLe
+		
+	case "=\\=", "!=":
+		res.Op = opNe
+		
+	case "+":
+		res.Op = opPlus
+	case "-":
+		res.Op = opMinus
+	case "*":
+		res.Op = opMul
+	case "/":
+		res.Op = opDiv
+		
+	case "is":
+		res.Op = opIs
+		
+	default:
+		panic(fmt.Sprintf("Unknown op-string: %s", op))
+	}
+	
+	return &res
+}
+
+func Is(l, r interface{}) *buildin2 {
+	return Op(l, "is", r)
+}
+
+func (bi *buildin2) String() string {
+	return fmt.Sprintf("%v %v %v", bi.L, OpNames[bi.Op], bi.R)
+}
+
+func (bi *buildin2) Type() int {
+	return ttBuildin
+}
+	// replace query variabls
+func (bi *buildin2) repQueryVars(bds Bindings) (newT Term) {
+	return &buildin2{Op: bi.Op,
+		L: bi.L.repQueryVars(bds), R: bi.R.repQueryVars(bds)}
+}
+
+	// l: the receiver
+	// l and R has be unifyVar before called
+	// if l is not Variable, R is not Variable
+func (l *buildin2) Match(R Term, bds Bindings) bool {
+	if r, ok := R.(*buildin2); ok {
+		if l.Op != r.Op {
+			return false
+		}
+		return matchTerm(l.L, r.L, bds) && matchTerm(l.R, r.R, bds)
+	}
+	
+	return false
+}
+
+func (bi *buildin2) unify(bds Bindings) Term {
+	return &buildin2{Op: bi.Op,
+		L: bi.L.unify(bds), R: bi.R.unify(bds)}
+}
+
+func isNumber(T Term) bool {
+	return T.Type() == ttInt
+}
+
+func (bi *buildin2) compute() Term {
+	L := bi.L
+	if !isNumber(L) {
+		L = computeTerm(L)
+		if L == nil {
+			return nil
+		}
+	}
+	
+	R := bi.R
+	if !isNumber(R) {
+		R = computeTerm(R)
+		if R == nil {
+			return nil
+		}
+	}
+	
+	if L.Type() == ttInt && R.Type() == ttInt {
+		l, r := L.(Integer), R.(Integer)
+		var res Integer
+		switch bi.Op {
+		case opPlus:
+			res = l + r
+		case opMinus:
+			res = l - r
+		case opMul:
+			res = l * r
+		case opDiv:
+			res = l / r
+		default:
+			return nil
+		}
+		
+		return res
+	}
+	
+	return nil
+}
+
 /* Bindings: Variable map to its value as a Term */
 
 type Bindings map[Variable]Term
@@ -524,4 +679,15 @@ func matchTerm(L, R Term, bds Bindings) (succ bool) {
 	}
 
 	return R.Match(L, bds)
+}
+
+func computeTerm(T Term) Term {
+	switch T.Type() {
+	case ttInt:
+		return T;
+	case ttBuildin:
+		t := T.(*buildin2)
+		return t.compute()
+	}
+	return nil
 }
