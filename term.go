@@ -476,13 +476,13 @@ const (
 	opLt        // <
 	opLe        // <=
 	opNe        // !=
-	
-	opIs        // is
-	
-	opPlus      // +
-	opMinus     // -
-	opMul       // *
-	opDiv       // /
+
+	opIs // is
+
+	opPlus  // +
+	opMinus // -
+	opMul   // *
+	opDiv   // /
 )
 
 var OpNames map[int]string = map[int]string{
@@ -491,13 +491,13 @@ var OpNames map[int]string = map[int]string{
 	opLt: "<",
 	opLe: "<=",
 	opNe: "!=",
-	
+
 	opIs: "is",
-	
-	opPlus: "+",
+
+	opPlus:  "+",
 	opMinus: "-",
-	opMul: "*",
-	opDiv: "/",
+	opMul:   "*",
+	opDiv:   "/",
 }
 
 /* buildin/2: *buildin2 */
@@ -507,25 +507,24 @@ type buildin2 struct {
 	L, R Term
 }
 
-
 func Op(l, op, r interface{}) *buildin2 {
 	res := buildin2{L: term(l), R: term(r)}
 	switch op.(string) {
 	case ">":
 		res.Op = opGt
-		
+
 	case ">=", "=>":
 		res.Op = opGe
-		
+
 	case "<":
 		res.Op = opLt
-		
+
 	case "<=", "=<":
 		res.Op = opLe
-		
+
 	case "=\\=", "!=":
 		res.Op = opNe
-		
+
 	case "+":
 		res.Op = opPlus
 	case "-":
@@ -534,14 +533,14 @@ func Op(l, op, r interface{}) *buildin2 {
 		res.Op = opMul
 	case "/":
 		res.Op = opDiv
-		
+
 	case "is":
 		res.Op = opIs
-		
+
 	default:
 		panic(fmt.Sprintf("Unknown op-string: %s", op))
 	}
-	
+
 	return &res
 }
 
@@ -556,15 +555,16 @@ func (bi *buildin2) String() string {
 func (bi *buildin2) Type() int {
 	return ttBuildin
 }
-	// replace query variabls
+
+// replace query variabls
 func (bi *buildin2) repQueryVars(bds Bindings) (newT Term) {
 	return &buildin2{Op: bi.Op,
 		L: bi.L.repQueryVars(bds), R: bi.R.repQueryVars(bds)}
 }
 
-	// l: the receiver
-	// l and R has be unifyVar before called
-	// if l is not Variable, R is not Variable
+// l: the receiver
+// l and R has be unifyVar before called
+// if l is not Variable, R is not Variable
 func (l *buildin2) Match(R Term, bds Bindings) bool {
 	if r, ok := R.(*buildin2); ok {
 		if l.Op != r.Op {
@@ -572,7 +572,7 @@ func (l *buildin2) Match(R Term, bds Bindings) bool {
 		}
 		return matchTerm(l.L, r.L, bds) && matchTerm(l.R, r.R, bds)
 	}
-	
+
 	return false
 }
 
@@ -593,7 +593,7 @@ func (bi *buildin2) compute() Term {
 			return nil
 		}
 	}
-	
+
 	R := bi.R
 	if !isNumber(R) {
 		R = computeTerm(R)
@@ -601,7 +601,7 @@ func (bi *buildin2) compute() Term {
 			return nil
 		}
 	}
-	
+
 	if L.Type() == ttInt && R.Type() == ttInt {
 		l, r := L.(Integer), R.(Integer)
 		var res Integer
@@ -617,10 +617,10 @@ func (bi *buildin2) compute() Term {
 		default:
 			return nil
 		}
-		
+
 		return res
 	}
-	
+
 	return nil
 }
 
@@ -684,7 +684,7 @@ func matchTerm(L, R Term, bds Bindings) (succ bool) {
 func computeTerm(T Term) Term {
 	switch T.Type() {
 	case ttInt:
-		return T;
+		return T
 	case ttBuildin:
 		t := T.(*buildin2)
 		return t.compute()

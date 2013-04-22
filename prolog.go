@@ -187,7 +187,7 @@ func (m *Machine) prove(goal Goal, bds Bindings) (solutions chan Bindings) {
 			// no need go further, if nothing left
 			return slns0
 		}
-		
+
 		solutions = make(chan Bindings)
 		go func() {
 			for sln0 := range slns0 {
@@ -202,11 +202,11 @@ func (m *Machine) prove(goal Goal, bds Bindings) (solutions chan Bindings) {
 			close(solutions)
 		}()
 		return solutions
-		
+
 	case gtOp:
 		bi := goal.(*buildin2)
 		L, R := bi.L.unify(bds), bi.R.unify(bds)
-		
+
 		switch bi.Op {
 		case opGt, opGe, opLt, opLe, opNe:
 			// comparing operators
@@ -225,38 +225,38 @@ func (m *Machine) prove(goal Goal, bds Bindings) (solutions chan Bindings) {
 				case opNe:
 					bl = l != r
 				}
-				
+
 				if bl {
 					return trivialSolution()
 				}
-				return nil;
+				return nil
 			}
 
-			return nil;
-			
+			return nil
+
 		case opIs:
 			r := computeTerm(R)
 			newBds := make(Bindings)
 			if !matchTerm(L, r, newBds) {
-				return nil;
+				return nil
 			}
-			
+
 			// fmt.Println(indent, "opIs", bi, ",", L, "is", R, "=", r, "=>", newBds)
 			return makeSolutions(newBds)
 		}
 
 		panic(fmt.Sprintf("Op %s is not a valid goal.", bi))
-		
+
 	case gtComplex:
 		ct := goal.(*ComplexTerm)
 		ct = ct.unify(bds).(*ComplexTerm)
 
 		return m.Match(ct)
-		
+
 	default:
 		panic(fmt.Sprintf("Goal not supported: %s", goal))
 	}
-	
+
 	return nil
 }
 
@@ -277,9 +277,9 @@ func (m *Machine) Match(query *ComplexTerm) (solutions chan Bindings) {
 	// localized query
 	lq := query.repQueryVars(inBds).(*ComplexTerm)
 	// fmt.Println(indent, "Match:", query, lq)
-	indent += "    "
-	defer func() { indent = indent[:len(indent)-4] }()
-	
+	//indent += "    "
+	//defer func() { indent = indent[:len(indent)-4] }()
+
 	solutions = make(chan Bindings)
 
 	go func() {
@@ -291,14 +291,15 @@ func (m *Machine) Match(query *ComplexTerm) (solutions chan Bindings) {
 				continue
 			}
 			// fmt.Println(indent, "Head", lq, rule.Head, hdBds)
-	
+
 			if rule.Body == nil {
 				// For a head-matched fact, generate a single solution.
 				// fmt.Println(indent, lq, "Fact", rule.Head, hdBds)
 				solutions <- calcSolution(inBds, hdBds)
+				//break
 				continue
 			}
-	
+
 			slns := m.prove(rule.Body, hdBds)
 			if slns != nil {
 				for sln := range slns {
@@ -309,7 +310,7 @@ func (m *Machine) Match(query *ComplexTerm) (solutions chan Bindings) {
 		}
 		close(solutions)
 	}()
-	
+
 	return solutions
 }
 

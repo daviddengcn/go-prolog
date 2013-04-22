@@ -76,6 +76,8 @@ const (
 	Y1 = "Y1"
 	X2 = "X2"
 	Y2 = "Y2"
+	Z1 = "Z1"
+	Z2 = "Z2"
 )
 
 func TestFact(t *testing.T) {
@@ -219,10 +221,10 @@ func TestProgram_Factorial(t *testing.T) {
 
 	m.AddFact(factorial(0, 1))
 	m.AddRule(R(factorial(N, F),
-			Op(N, ">", 0),
-			Is(N1, Op(N, "-", 1)),
-			factorial(N1, F1),
-			Is(F, Op(N, "*", F1))))
+		Op(N, ">", 0),
+		Is(N1, Op(N, "-", 1)),
+		factorial(N1, F1),
+		Is(F, Op(N, "*", F1))))
 	calcInt(m, factorial(0, X), X)
 	calcInt(m, factorial(5, X), X)
 	fmt.Printf("Machine: %+v\n", m)
@@ -236,12 +238,12 @@ func TestProgram_Fibonacci(t *testing.T) {
 	m.AddFact(fibonacci(1, 1))
 	m.AddFact(fibonacci(2, 1))
 	m.AddRule(R(fibonacci(N, F),
-			Op(N, ">", 2),
-			Is(N1, Op(N, "-", 1)),
-			fibonacci(N1, F1),
-			Is(N2, Op(N, "-", 2)),
-			fibonacci(N2, F2),
-			Is(F, Op(F1, "+", "F2"))))
+		Op(N, ">", 2),
+		Is(N1, Op(N, "-", 1)),
+		fibonacci(N1, F1),
+		Is(N2, Op(N, "-", 2)),
+		fibonacci(N2, F2),
+		Is(F, Op(F1, "+", "F2"))))
 	calcInt(m, fibonacci(1, X), X)
 	calcInt(m, fibonacci(2, X), X)
 	calcInt(m, fibonacci(3, X), X)
@@ -252,23 +254,105 @@ func TestProgram_Fibonacci(t *testing.T) {
 	fmt.Printf("Machine: %+v\n", m)
 }
 
-/*
 func TestProgram_Grid(t *testing.T) {
 	grid := ctFunc("grid")
 
 	m := NewMachine()
 
-	m.AddFact(grid(X, 1, 1))
-	m.AddFact(grid(1, X, 1))
+	m.AddFact(grid(X, 0, 1))
+	m.AddFact(grid(0, X, 1))
 	m.AddRule(R(grid(X, Y, Z),
-		Or(X > 1, Y > 1),
-//		X1 is X - 1, 
-//		grid(X1, Y, Z1),
-//		Y1 is Y - 1,
-//		grid(X, Y1, Z2),
-//		Z is Z1 + Z2))
-	calcInt(m, grid(1, 1, X), X)
+		Op(X, ">", 0),
+		Op(Y, ">", 0),
+		Is(X1, Op(X, "-", 1)),
+		grid(X1, Y, Z1),
+		Is(Y1, Op(Y, "-", 1)),
+		grid(X, Y1, Z2),
+		Is(Z, Op(Z1, "+", Z2))))
+
+	//	calcInt(m, grid(1, 1, X), X)
+	//	calcInt(m, grid(2, 2, X), X)
+	//	calcInt(m, grid(9, 9, X), X)
 
 	fmt.Printf("Machine: %+v\n", m)
 }
-*/
+
+func grid(M, N, Z interface{}, bds map[string]interface{}) chan map[string]interface{} {
+	out := make(chan map[string]interface{})
+	go func() {
+		m, n := bds[M.(string)].(int), bds[N.(string)].(int)
+		if m == 0 || n == 0 {
+			slns := make(chan map[string]interface{})
+			go func(out chan map[string]interface{}) {
+				out <- map[string]interface{}{Z.(string): 1}
+				close(out)
+			}(slns)
+
+			for sln := range slns {
+				out <- sln
+			}
+			close(out)
+			return
+		}
+
+		slns := make(chan map[string]interface{}, 1)
+		slns <- make(map[string]interface{})
+		close(slns)
+		go func() { // M > 0
+			m = bds[M.(string)].(int)
+			<-slns
+
+			slns1 := make(chan map[string]interface{}, 1)
+			slns1 <- make(map[string]interface{})
+			close(slns1)
+			go func() { // N > 0
+				n = bds[N.(string)].(int)
+				<-slns1
+
+				var M1 interface{} = string(genUniqueVar())
+				bds[M1.(string)] = bds[M.(string)].(int) - 1
+				slns2 := make(chan map[string]interface{}, 1)
+				slns2 <- nil
+				close(slns2)
+				go func() { // M1 is M - 1
+					<-slns2
+
+					go func() { // grid(M1, N, Z1)
+						var Z1 interface{} =  string(genUniqueVar())
+						z1 := grid(M1, N, Z1, bds)
+						go func() { // N1 is N - 1
+							bds[Z1.(string)] = (<-z1)[Z1.(string)]
+
+							var N1 interface{} =  string(genUniqueVar())
+							bds[N1.(string)] = bds[N.(string)].(int) - 1
+							var Z2 interface{} =  string(genUniqueVar())
+							z2 := grid(M, N1, Z2, bds)
+							go func() { // grid(M, N1, Z2)
+								bds[Z2.(string)] = (<-z2)[Z2.(string)]
+								z := bds[Z1.(string)].(int) + bds[Z2.(string)].(int)
+
+								go func() { // Z is Z1 + Z2
+									out <- map[string]interface{}{Z.(string): z}
+									close(out)
+								}()
+							}()
+						}()
+					}()
+				}()
+			}()
+		}()
+	}()
+	return out
+}
+
+func TestProgram_GoGrid(t *testing.T) {
+	//	fmt.Println(grid(1, 1));
+	//	fmt.Println(grid(2, 2));
+	//	fmt.Println(grid(9, 9));
+
+	fmt.Println(<-grid("m", "n", "z", map[string]interface{}{"m": 1, "n": 1}))
+	fmt.Println(<-grid("m", "n", "z", map[string]interface{}{"m": 2, "n": 2}))
+	fmt.Println(<-grid("m", "n", "z", map[string]interface{}{"m": 9, "n": 9}))
+	//	fmt.Println(grid(2, 2));
+	//	fmt.Println(grid(9, 9));
+}
