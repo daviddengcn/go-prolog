@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-func ctFunc(name Atom) func(args ...interface{}) *ComplexTerm {
+func ctFunc(name string) func(args ...interface{}) *ComplexTerm {
 	return func(args ...interface{}) *ComplexTerm {
-		return CT(name, args...)
+		return CT(A(name), args...)
 	}
 }
 
@@ -272,7 +272,7 @@ func TestProgram_Grid(t *testing.T) {
 
 	//	calcInt(m, grid(1, 1, X), X)
 	//	calcInt(m, grid(2, 2, X), X)
-	//	calcInt(m, grid(9, 9, X), X)
+	calcInt(m, grid(9, 9, X), X)
 
 	fmt.Printf("Machine: %+v\n", m)
 }
@@ -318,14 +318,14 @@ func grid(M, N, Z interface{}, bds map[string]interface{}) chan map[string]inter
 					<-slns2
 
 					go func() { // grid(M1, N, Z1)
-						var Z1 interface{} =  string(genUniqueVar())
+						var Z1 interface{} = string(genUniqueVar())
 						z1 := grid(M1, N, Z1, bds)
 						go func() { // N1 is N - 1
 							bds[Z1.(string)] = (<-z1)[Z1.(string)]
 
-							var N1 interface{} =  string(genUniqueVar())
+							var N1 interface{} = string(genUniqueVar())
 							bds[N1.(string)] = bds[N.(string)].(int) - 1
-							var Z2 interface{} =  string(genUniqueVar())
+							var Z2 interface{} = string(genUniqueVar())
 							z2 := grid(M, N1, Z2, bds)
 							go func() { // grid(M, N1, Z2)
 								bds[Z2.(string)] = (<-z2)[Z2.(string)]
@@ -350,9 +350,9 @@ func TestProgram_GoGrid(t *testing.T) {
 	//	fmt.Println(grid(2, 2));
 	//	fmt.Println(grid(9, 9));
 
-	fmt.Println(<-grid("m", "n", "z", map[string]interface{}{"m": 1, "n": 1}))
-	fmt.Println(<-grid("m", "n", "z", map[string]interface{}{"m": 2, "n": 2}))
-	fmt.Println(<-grid("m", "n", "z", map[string]interface{}{"m": 9, "n": 9}))
+	//	fmt.Println(<-grid("m", "n", "z", map[string]interface{}{"m": 1, "n": 1}))
+	//	fmt.Println(<-grid("m", "n", "z", map[string]interface{}{"m": 2, "n": 2}))
+	//	fmt.Println(<-grid("m", "n", "z", map[string]interface{}{"m": 9, "n": 9}))
 	//	fmt.Println(grid(2, 2));
 	//	fmt.Println(grid(9, 9));
 }

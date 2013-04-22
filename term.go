@@ -3,8 +3,9 @@ package prolog
 import (
 	"bytes"
 	"fmt"
-	"strconv"
+	//	"strconv"
 	"strings"
+	"sync"
 )
 
 // Constants for Term.Type().
@@ -60,41 +61,82 @@ func term(t interface{}) Term {
 	panic(fmt.Sprintf("Invalid argument %v for CT", t))
 }
 
-/* Atom term: Atom */
-
-type Atom string
-
-func A(str string) Atom {
-	return Atom(str)
+type atomPool struct {
+	sync.RWMutex
+	nameIndex map[string]int
+	indexName []string
 }
 
-func (at Atom) String() string {
-	if len(at) > 0 {
-		if at[0] >= '0' && at[0] <= '9' {
-			return strconv.Quote(string(at))
-		}
+func (ap *atomPool) nameOfIndex(index int) string {
+	ap.RLock()
+	defer ap.RUnlock()
+
+	return ap.indexName[index]
+}
+
+func (ap *atomPool) indexOfName(name string) int {
+	// First try fetch within read-lock
+	index, ok := func() (index int, ok bool) {
+		ap.RLock()
+		defer ap.RUnlock()
+
+		index, ok = ap.nameIndex[name]
+		return
+	}()
+
+	if ok {
+		// if found, return it
+		return index
 	}
 
-	return string(at)
+	// otherwise try fetch/create within write-lock
+	ap.Lock()
+	defer ap.Unlock()
+
+	// try fetch again, in case it is inserted before atomPool.Lock
+	index, ok = ap.nameIndex[name]
+	if ok {
+		return index
+	}
+
+	index = len(ap.indexName)
+	ap.indexName = append(ap.indexName, name)
+	ap.nameIndex[name] = index
+
+	return index
 }
 
-func (at Atom) Type() int {
+var gAtomPool = &atomPool{nameIndex: make(map[string]int)}
+
+/* Atom term: Atom */
+
+type atom int
+
+func A(name string) atom {
+	return atom(gAtomPool.indexOfName(name))
+}
+
+func (at atom) String() string {
+	return gAtomPool.nameOfIndex(int(at))
+}
+
+func (at atom) Type() int {
 	return ttAtom
 }
 
-func (at Atom) repQueryVars(bds Bindings) Term {
+func (at atom) repQueryVars(bds Bindings) Term {
 	return at
 }
 
-func (l Atom) Match(R Term, bds Bindings) bool {
-	if r, ok := R.(Atom); ok {
+func (l atom) Match(R Term, bds Bindings) bool {
+	if r, ok := R.(atom); ok {
 		return l == r
 	}
 
 	return R.Match(l, bds)
 }
 
-func (at Atom) unify(bds Bindings) Term {
+func (at atom) unify(bds Bindings) Term {
 	return at
 }
 
@@ -209,7 +251,7 @@ func genUniqueVar() Variable {
 /* Complex term: *ComplexTerm */
 
 type ComplexTerm struct {
-	Functor Atom
+	Functor atom
 	Args    []Term
 }
 
@@ -219,7 +261,7 @@ type ComplexTerm struct {
 //
 // NOTE: using V("v"), you can create variables with lower case prefix. This is
 // legal in go-prolog.
-func CT(functor Atom, args ...interface{}) *ComplexTerm {
+func CT(functor atom, args ...interface{}) *ComplexTerm {
 	return &ComplexTerm{Functor: functor, Args: L(args...)}
 }
 
@@ -241,7 +283,7 @@ func (ct *ComplexTerm) Key() string {
 
 func (ct *ComplexTerm) String() string {
 	var buf bytes.Buffer
-	buf.Write([]byte(ct.Functor))
+	buf.Write([]byte(ct.Functor.String()))
 	if len(ct.Args) > 0 {
 		buf.WriteRune('(')
 		for i, arg := range ct.Args {
@@ -435,15 +477,16 @@ func (l FirstLeft) Match(R Term, bds Bindings) bool {
 	}
 
 	switch r := R.(type) {
-	case Atom:
-		if len(r) < 1 {
+	case atom:
+		rr := r.String()
+		if len(rr) < 1 {
 			return false
 		}
 
-		if !matchTerm(l.First, Atom(r[0:1]), bds) {
+		if !matchTerm(l.First, A(rr[0:1]), bds) {
 			return false
 		}
-		if !matchTerm(l.Left, Atom(r[1:]), bds) {
+		if !matchTerm(l.Left, A(rr[1:]), bds) {
 			return false
 		}
 	case FirstLeft:
@@ -462,9 +505,9 @@ func (at FirstLeft) unify(bds Bindings) Term {
 	first := at.First.unify(bds)
 	left := at.Left.unify(bds)
 
-	if fst, ok := first.(Atom); ok {
-		if lft, ok := left.(Atom); ok {
-			return fst + lft
+	if fst, ok := first.(atom); ok {
+		if lft, ok := left.(atom); ok {
+			return A(fst.String() + lft.String())
 		}
 	}
 	return FirstLeft{First: first, Left: left}
