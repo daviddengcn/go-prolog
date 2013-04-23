@@ -260,7 +260,7 @@ func (m *Machine) prove(goal Goal, bds Bindings) (solutions chan Bindings) {
 	return nil
 }
 
-func calcSolution(inBds, bds Bindings) (sln Bindings) {
+func calcSolution(inBds VarBindings, bds Bindings) (sln Bindings) {
 	sln = make(Bindings)
 	for v, vl := range inBds {
 		sln[v] = vl.unify(bds)
@@ -273,7 +273,7 @@ func calcSolution(inBds, bds Bindings) (sln Bindings) {
 var indent string
 
 func (m *Machine) Match(query *ComplexTerm) (solutions chan Bindings) {
-	inBds := make(Bindings)
+	inBds := make(VarBindings)
 	// localized query
 	lq := query.repQueryVars(inBds).(*ComplexTerm)
 	// fmt.Println(indent, "Match:", query, lq)
@@ -290,7 +290,7 @@ func (m *Machine) Match(query *ComplexTerm) (solutions chan Bindings) {
 				// head not matched
 				continue
 			}
-			// fmt.Println(indent, "Head", lq, rule.Head, hdBds)
+			fmt.Println(indent, "Head", lq, rule.Head, hdBds)
 
 			if rule.Body == nil {
 				// For a head-matched fact, generate a single solution.

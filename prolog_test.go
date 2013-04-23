@@ -30,7 +30,7 @@ func match(m *Machine, ct *ComplexTerm) int {
 	return count
 }
 
-func calcInt(m *Machine, ct *ComplexTerm, rV Variable) (vl []int) {
+func calcInt(m *Machine, ct *ComplexTerm, rV variable) (vl []int) {
 	slns := m.Match(ct)
 	fmt.Println("Match fact", ct, ": ")
 	count := 0
@@ -225,8 +225,8 @@ func TestProgram_Factorial(t *testing.T) {
 		Is(N1, Op(N, "-", 1)),
 		factorial(N1, F1),
 		Is(F, Op(N, "*", F1))))
-	calcInt(m, factorial(0, X), X)
-	calcInt(m, factorial(5, X), X)
+	calcInt(m, factorial(0, X), V(X))
+	calcInt(m, factorial(5, X), V(X))
 	fmt.Printf("Machine: %+v\n", m)
 }
 
@@ -244,13 +244,13 @@ func TestProgram_Fibonacci(t *testing.T) {
 		Is(N2, Op(N, "-", 2)),
 		fibonacci(N2, F2),
 		Is(F, Op(F1, "+", "F2"))))
-	calcInt(m, fibonacci(1, X), X)
-	calcInt(m, fibonacci(2, X), X)
-	calcInt(m, fibonacci(3, X), X)
-	calcInt(m, fibonacci(4, X), X)
-	calcInt(m, fibonacci(5, X), X)
-	calcInt(m, fibonacci(6, X), X)
-	calcInt(m, fibonacci(7, X), X)
+	calcInt(m, fibonacci(1, X), V(X))
+	calcInt(m, fibonacci(2, X), V(X))
+	calcInt(m, fibonacci(3, X), V(X))
+	calcInt(m, fibonacci(4, X), V(X))
+	calcInt(m, fibonacci(5, X), V(X))
+	calcInt(m, fibonacci(6, X), V(X))
+	calcInt(m, fibonacci(7, X), V(X))
 	fmt.Printf("Machine: %+v\n", m)
 }
 
@@ -272,7 +272,8 @@ func TestProgram_Grid(t *testing.T) {
 
 	//	calcInt(m, grid(1, 1, X), X)
 	//	calcInt(m, grid(2, 2, X), X)
-	calcInt(m, grid(9, 9, X), X)
+
+//	calcInt(m, grid(9, 9, X), V(X))
 
 	fmt.Printf("Machine: %+v\n", m)
 }

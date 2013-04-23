@@ -4,8 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	//	"strconv"
-	"strings"
-	"sync"
+	//"strings"
 )
 
 // Constants for Term.Type().
@@ -20,8 +19,11 @@ const (
 
 type Term interface {
 	Type() int
-	// replace query variabls
-	repQueryVars(bds Bindings) (newT Term)
+	// replace query variabls with p-variables
+	// bds: q-var -> p-var
+	// pIndex of variables in bds are from 0 - len(bds) -1, if a new variable
+	// has to be generated, use pV(len(bds), then put it into bds
+	repQueryVars(bds VarBindings) (newT Term)
 
 	// l: the receiver
 	// l and R has be unifyVar before called
@@ -61,52 +63,6 @@ func term(t interface{}) Term {
 	panic(fmt.Sprintf("Invalid argument %v for CT", t))
 }
 
-type atomPool struct {
-	sync.RWMutex
-	nameIndex map[string]int
-	indexName []string
-}
-
-func (ap *atomPool) nameOfIndex(index int) string {
-	ap.RLock()
-	defer ap.RUnlock()
-
-	return ap.indexName[index]
-}
-
-func (ap *atomPool) indexOfName(name string) int {
-	// First try fetch within read-lock
-	index, ok := func() (index int, ok bool) {
-		ap.RLock()
-		defer ap.RUnlock()
-
-		index, ok = ap.nameIndex[name]
-		return
-	}()
-
-	if ok {
-		// if found, return it
-		return index
-	}
-
-	// otherwise try fetch/create within write-lock
-	ap.Lock()
-	defer ap.Unlock()
-
-	// try fetch again, in case it is inserted before atomPool.Lock
-	index, ok = ap.nameIndex[name]
-	if ok {
-		return index
-	}
-
-	index = len(ap.indexName)
-	ap.indexName = append(ap.indexName, name)
-	ap.nameIndex[name] = index
-
-	return index
-}
-
-var gAtomPool = &atomPool{nameIndex: make(map[string]int)}
 
 /* Atom term: Atom */
 
@@ -116,6 +72,8 @@ func A(name string) atom {
 	return atom(gAtomPool.indexOfName(name))
 }
 
+var gAtomPool = newNamePool()
+
 func (at atom) String() string {
 	return gAtomPool.nameOfIndex(int(at))
 }
@@ -124,7 +82,7 @@ func (at atom) Type() int {
 	return ttAtom
 }
 
-func (at atom) repQueryVars(bds Bindings) Term {
+func (at atom) repQueryVars(bds VarBindings) Term {
 	return at
 }
 
@@ -152,7 +110,7 @@ func (i Integer) Type() int {
 	return ttInt
 }
 
-func (i Integer) repQueryVars(bds Bindings) Term {
+func (i Integer) repQueryVars(bds VarBindings) Term {
 	return i
 }
 
@@ -174,41 +132,55 @@ func (i Integer) unify(bds Bindings) Term {
 
 /* Variable term: Variable */
 
-type Variable string
+var gVarPool = newNamePool()
 
-const _VAR_GLOBAL_PREFIX = "_AUTO_"
-const _VAR_GLOBAL_FMT = "_AUTO_%d"
+type variable int
 
-func V(str string) Variable {
-	if strings.HasPrefix(str, _VAR_GLOBAL_PREFIX) {
-		panic(str + " is a GLOBAL VARIABLE name")
-	}
-	return Variable(str)
+func V(name string) variable {
+	return variable(gVarPool.indexOfName(name))
 }
 
-func _v(str string) Variable {
-	return Variable(str)
+func pV(pIndex int) variable {
+	return variable(-(pIndex*2 + 1))
 }
 
-func (v Variable) Type() int {
+func (v variable) pIndex() int {
+	return (-int(v)) / 2
+}
+
+func (v variable) Type() int {
 	return ttVar
 }
 
-func (v Variable) repQueryVars(bds Bindings) Term {
+func (v variable) String() string {
+	if v >= 0 {
+		return gVarPool.nameOfIndex(int(v))
+	}
+	
+	idx := -v
+	
+	if idx % 2 == 0 {
+		return fmt.Sprintf("G_%d", idx/2)
+	}
+	
+	return fmt.Sprintf("P_%d", idx/2)
+}
+
+func (v variable) repQueryVars(bds VarBindings) Term {
 	newV, ok := bds[v]
 	if ok {
 		return newV
 	}
-	newV = genUniqueVar()
+	newV = pV(len(bds))
 	bds[v] = newV
 
 	return newV
 }
 
-func (l Variable) Match(R Term, bds Bindings) bool {
+func (l variable) Match(R Term, bds Bindings) bool {
 	if R.Type() == ttVar {
 		// both Variable's
-		r := R.(Variable)
+		r := R.(variable)
 		if l != r {
 			s := genUniqueVar()
 			bds[l] = s
@@ -222,7 +194,7 @@ func (l Variable) Match(R Term, bds Bindings) bool {
 	return true
 }
 
-func (v Variable) unify(bds Bindings) Term {
+func (v variable) unify(bds Bindings) Term {
 	t := bds.unifyVar(v)
 	if t.Type() != ttVar {
 		return t.unify(bds)
@@ -231,20 +203,20 @@ func (v Variable) unify(bds Bindings) Term {
 	return t
 }
 
-var gUniqueVarChan chan Variable
+var gUniqueVarChan chan variable
 
 func init() {
-	gUniqueVarChan = make(chan Variable, 10)
+	gUniqueVarChan = make(chan variable, 10)
 	go func() {
-		counter := 0
+		counter := 1
 		for {
-			gUniqueVarChan <- _v(fmt.Sprintf(_VAR_GLOBAL_FMT, counter))
-			counter++
+			gUniqueVarChan <- variable(-(counter*2))
+			counter ++
 		}
 	}()
 }
 
-func genUniqueVar() Variable {
+func genUniqueVar() variable {
 	return <-gUniqueVarChan
 }
 
@@ -269,7 +241,7 @@ func (ct *ComplexTerm) Type() int {
 	return ttComplex
 }
 
-func (ct *ComplexTerm) repQueryVars(bds Bindings) Term {
+func (ct *ComplexTerm) repQueryVars(bds VarBindings) Term {
 	newCt := &ComplexTerm{Functor: ct.Functor, Args: make([]Term, len(ct.Args))}
 	for i, arg := range ct.Args {
 		newCt.Args[i] = arg.repQueryVars(bds)
@@ -341,7 +313,7 @@ func (l List) Type() int {
 	return ttList
 }
 
-func (l List) repQueryVars(bds Bindings) Term {
+func (l List) repQueryVars(bds VarBindings) Term {
 	newL := make(List, len(l))
 	for i, el := range l {
 		newL[i] = el.repQueryVars(bds)
@@ -402,7 +374,7 @@ func (l HeadTail) String() string {
 	return fmt.Sprintf("[%s|%s]", l.Head, l.Tail)
 }
 
-func (l HeadTail) repQueryVars(bds Bindings) Term {
+func (l HeadTail) repQueryVars(bds VarBindings) Term {
 	return HeadTail{Head: l.Head.repQueryVars(bds),
 		Tail: l.Tail.repQueryVars(bds)}
 }
@@ -466,7 +438,7 @@ func (at FirstLeft) String() string {
 	return fmt.Sprintf("%s+%s", at.First, at.Left)
 }
 
-func (at FirstLeft) repQueryVars(bds Bindings) Term {
+func (at FirstLeft) repQueryVars(bds VarBindings) Term {
 	return FirstLeft{First: at.First.repQueryVars(bds),
 		Left: at.Left.repQueryVars(bds)}
 }
@@ -600,7 +572,7 @@ func (bi *buildin2) Type() int {
 }
 
 // replace query variabls
-func (bi *buildin2) repQueryVars(bds Bindings) (newT Term) {
+func (bi *buildin2) repQueryVars(bds VarBindings) (newT Term) {
 	return &buildin2{Op: bi.Op,
 		L: bi.L.repQueryVars(bds), R: bi.R.repQueryVars(bds)}
 }
@@ -667,14 +639,17 @@ func (bi *buildin2) compute() Term {
 	return nil
 }
 
+/* VarBindings */
+type VarBindings map[variable]variable
+
 /* Bindings: Variable map to its value as a Term */
 
-type Bindings map[Variable]Term
+type Bindings map[variable]Term
 
 // keep unify until t is no longer a Variable, but no further unify
 func (bds Bindings) unifyVar(t Term) Term {
 	for t.Type() == ttVar {
-		v := t.(Variable)
+		v := t.(variable)
 		i := bds[v]
 		if i == nil {
 			break
