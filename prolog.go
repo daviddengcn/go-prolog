@@ -190,7 +190,7 @@ func (r *Rule) String() string {
 *****************/
 
 type Machine struct {
-	rules map[string][]*Rule
+	rules map[int][]*Rule
 }
 
 func (m *Machine) AddFact(head *ComplexTerm) {
@@ -477,5 +477,5 @@ func (m *Machine) match(query *ComplexTerm, rCount int) (solutions chan *Binding
 }
 
 func NewMachine() *Machine {
-	return &Machine{rules: make(map[string][]*Rule)}
+	return &Machine{rules: make(map[int][]*Rule)}
 }

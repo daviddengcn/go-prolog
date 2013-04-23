@@ -308,8 +308,9 @@ func (ct *ComplexTerm) replaceVars(bds VarBindings) Term {
 	return newCt
 }
 
-func (ct *ComplexTerm) Key() string {
-	return fmt.Sprintf("%s/%d", ct.Functor, len(ct.Args))
+func (ct *ComplexTerm) Key() int {
+	//return fmt.Sprintf("%s/%d", ct.Functor, len(ct.Args))
+	return int(ct.Functor)*1024 | len(ct.Args)
 }
 
 func (ct *ComplexTerm) String() string {
