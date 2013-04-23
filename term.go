@@ -29,7 +29,7 @@ type Term interface {
 	// pIndex of variables in bds are from 0 - len(bds) -1, if a new variable
 	// has to be generated, use pV(len(bds), then put it into bds
 	replaceVars(bds VarBindings) (newT Term)
-	
+
 	// l: the receiver
 	// l and R has be unifyVar before called
 	// if l is not Variable, R is not Variable
@@ -68,7 +68,6 @@ func term(t interface{}) Term {
 	}
 	panic(fmt.Sprintf("Invalid argument %v for CT", t))
 }
-
 
 /* Atom term: Atom */
 
@@ -156,41 +155,47 @@ func V(name string) variable {
 
 // gIndex -> variable
 func gV(gIndex int) variable {
-	return variable(-(gIndex + 1)*4)
+	return variable(-(gIndex + 1) * 4)
 }
+
 // variable -> gIndex
 func (v variable) gIndex() int {
 	return (-int(v))/4 - 1
 }
+
 // whether v is a g-variable
 func (v variable) isG() bool {
-	return v < 0 && (-int(v)) % 4 == 0
+	return v < 0 && (-int(v))%4 == 0
 }
 
 // pIndex -> variable
 func pV(pIndex int) variable {
 	return variable(-(pIndex*4 + 1))
 }
+
 // variable -> pIndex
 func (v variable) pIndex() int {
 	return (-int(v)) / 4
 }
+
 // whether v is a p-variable
 func (v variable) isP() bool {
-	return v < 0 && (-int(v)) % 4 == 1
+	return v < 0 && (-int(v))%4 == 1
 }
 
 // rIndex -> variable
 func rV(rIndex int) variable {
 	return variable(-(rIndex*4 + 2))
 }
+
 // variable -> rIndex
 func (v variable) rIndex() int {
 	return (-int(v)) / 4
 }
+
 // whether v is a r-variable
 func (v variable) isR() bool {
-	return v < 0 && (-int(v)) % 4 == 2
+	return v < 0 && (-int(v))%4 == 2
 }
 
 func (v variable) Type() int {
@@ -205,15 +210,15 @@ func (v variable) String() string {
 	if v.isG() {
 		return fmt.Sprintf("G_%d", v.gIndex())
 	}
-	
+
 	if v.isP() {
 		return fmt.Sprintf("P_%d", v.pIndex())
 	}
-	
+
 	if v.isR() {
 		return fmt.Sprintf("R_%d", v.rIndex())
 	}
-	
+
 	return fmt.Sprint("Invalid_%d", -v)
 }
 
@@ -270,7 +275,7 @@ func init() {
 		counter := 0
 		for {
 			gUniqueVarChan <- gV(counter)
-			counter ++
+			counter++
 		}
 	}()
 }
@@ -745,7 +750,7 @@ func (bi *buildin2) compute() Term {
 /* pVarBindings: gV/rV -> pV */
 type pVarBindings struct {
 	rList []*variable
-	gMap map[variable]variable
+	gMap  map[variable]variable
 	Count int
 }
 
@@ -763,10 +768,10 @@ func (bds *pVarBindings) String() string {
 			} else {
 				buf.WriteRune(' ')
 			}
-			
+
 			buf.WriteString(fmt.Sprintf("%v->%v", rV(i), vl))
 		}
-		
+
 		keys := make([]variable, 0, len(bds.gMap))
 		for v := range bds.gMap {
 			keys = append(keys, v)
@@ -776,19 +781,19 @@ func (bds *pVarBindings) String() string {
 		}, func(i, j int) {
 			keys[i], keys[j] = keys[j], keys[i]
 		})
-		
-		for _, v := range(keys) {
+
+		for _, v := range keys {
 			vl := bds.gMap[v]
-			
+
 			if first {
 				first = false
 			} else {
 				buf.WriteRune(' ')
 			}
-			
+
 			buf.WriteString(fmt.Sprintf("%v->%v", v, vl))
 		}
-		
+
 	}
 	buf.WriteRune(']')
 	return buf.String()
@@ -800,24 +805,24 @@ func (bds *pVarBindings) get(v variable) (newV variable) {
 		if pv != nil {
 			return *pv
 		}
-		
+
 		newV = pV(bds.Count)
 		bds.rList[v.rIndex()] = &newV
-		bds.Count ++
+		bds.Count++
 		return newV
 	}
-	
+
 	newV, ok := bds.gMap[v]
 	if ok {
 		return newV
 	}
 	newV = pV(bds.Count)
-	
+
 	if bds.gMap == nil {
 		bds.gMap = make(map[variable]variable)
 	}
 	bds.gMap[v] = newV
-	bds.Count ++
+	bds.Count++
 
 	return newV
 }
@@ -828,7 +833,7 @@ func (bds *pVarBindings) each(callback func(v, vl variable)) {
 			callback(rV(i), *vl)
 		}
 	}
-	
+
 	for v, vl := range bds.gMap {
 		callback(v, vl)
 	}
@@ -856,7 +861,7 @@ func (bds rVarBindings) get(v variable) variable {
 
 type Bindings struct {
 	rList []Term
-	gMap map[variable]Term
+	gMap  map[variable]Term
 }
 
 func newBindings(nRVars int) *Bindings {
@@ -881,10 +886,10 @@ func (bds *Bindings) String() string {
 			} else {
 				buf.WriteRune(' ')
 			}
-			
+
 			buf.WriteString(fmt.Sprintf("%v->%v", rV(i), vl))
 		}
-		
+
 		keys := make([]variable, 0, len(bds.gMap))
 		for v := range bds.gMap {
 			keys = append(keys, v)
@@ -894,19 +899,19 @@ func (bds *Bindings) String() string {
 		}, func(i, j int) {
 			keys[i], keys[j] = keys[j], keys[i]
 		})
-		
-		for _, v := range(keys) {
+
+		for _, v := range keys {
 			vl := bds.gMap[v]
-			
+
 			if first {
 				first = false
 			} else {
 				buf.WriteRune(' ')
 			}
-			
+
 			buf.WriteString(fmt.Sprintf("%v->%v", v, vl))
 		}
-		
+
 	}
 	buf.WriteRune(']')
 	return buf.String()
@@ -917,7 +922,7 @@ func (bds *Bindings) put(v variable, t Term) {
 		bds.rList[v.rIndex()] = t
 		return
 	}
-	
+
 	bds.putG(v, t)
 }
 
@@ -930,14 +935,14 @@ func (bds *Bindings) putG(v variable, t Term) {
 
 // returns nil if no bindings
 func (bds *Bindings) get(v variable) Term {
-	if (bds == nil) {
+	if bds == nil {
 		return nil
 	}
-	
+
 	if v.isR() {
 		return bds.rList[v.rIndex()]
 	}
-	
+
 	return bds.gMap[v]
 }
 
@@ -963,7 +968,7 @@ func (a *Bindings) combine(b *Bindings) (c *Bindings) {
 	if b == nil {
 		return a
 	}
-	
+
 	if a != nil {
 		for i, v := range a.rList {
 			if v != nil {

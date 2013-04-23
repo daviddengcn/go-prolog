@@ -35,7 +35,7 @@ const (
 type Goal interface {
 	GoalType() int
 	replaceGoalVars(bds VarBindings) Goal
-	
+
 	// at most one solution
 	singleSolution() bool
 }
@@ -68,7 +68,7 @@ func (cg ConjGoal) replaceGoalVars(bds VarBindings) Goal {
 	for i, g := range cg {
 		newCg[i] = g.replaceGoalVars(bds)
 	}
-	
+
 	return newCg
 }
 
@@ -78,7 +78,7 @@ func (cg ConjGoal) singleSolution() bool {
 			return false
 		}
 	}
-	
+
 	return true
 }
 
@@ -99,7 +99,7 @@ func (dg DisjGoal) replaceGoalVars(bds VarBindings) Goal {
 	for i, g := range dg {
 		newDg[i] = g.replaceGoalVars(bds)
 	}
-	
+
 	return newDg
 }
 
@@ -107,11 +107,11 @@ func (dg DisjGoal) singleSolution() bool {
 	if len(dg) == 0 {
 		return true
 	}
-	
+
 	if len(dg) == 1 {
 		return dg[0].singleSolution()
 	}
-	
+
 	return false
 }
 
@@ -199,17 +199,17 @@ func (m *Machine) AddFact(head *ComplexTerm) {
 
 func (m *Machine) AddRule(rule *Rule) {
 	fmt.Println(appendIndent(fmt.Sprint(rule), "    ") + "\n")
-	
+
 	key := rule.Head.Key()
 	m.rules[key] = append(m.rules[key], rule)
-	
+
 	bds := make(rVarBindings)
 	rule.Head = rule.Head.replaceVars(bds).(*ComplexTerm)
 	if rule.Body != nil {
 		rule.Body = rule.Body.replaceGoalVars(bds)
 	}
 	rule.vBds = bds
-	fmt.Println("Replaced:", appendIndent(fmt.Sprint(rule), "    ") + "\n")
+	fmt.Println("Replaced:", appendIndent(fmt.Sprint(rule), "    ")+"\n")
 }
 
 // returns nil if not matched
@@ -250,14 +250,14 @@ func (m *Machine) process(goal Goal, bds *Bindings) bool {
 			// success
 			return true
 		}
-		
+
 		for _, g := range cg {
 			if !m.process(g, bds) {
 				return false
 			}
 		}
 		return true
-		
+
 	case gtOp:
 		bi := goal.(*buildin2)
 		L, R := bi.L.unify(bds), bi.R.unify(bds)
@@ -302,7 +302,7 @@ func (m *Machine) process(goal Goal, bds *Bindings) bool {
 		panic(fmt.Sprintf("Op %s is not a valid goal.", bi))
 
 	}
-	
+
 	panic(fmt.Sprint(goal) + " is not singleSolution!")
 }
 
@@ -316,45 +316,47 @@ func (m *Machine) prove(goal Goal, bds *Bindings) (solutions chan *Bindings) {
 	switch goal.GoalType() {
 	case gtConj:
 		cg := goal.(ConjGoal)
-		if len(cg) == 0 {
+		start := 0
+		for start < len(cg) && cg[start].singleSolution() {
+			if !m.process(cg[start], bds) {
+				return nil
+			}
+
+			start++
+		}
+		if start == len(cg) {
 			// success
 			return trivialSolution()
 		}
-		
-		if cg[0].singleSolution() {
-			if (!m.process(cg[0], bds)) {
-				return nil
-			}
-			
-			return m.prove(cg[1:], bds)
-		} else {
-			slns0 := m.prove(cg[0], bds)
-			// fmt.Println(indent, "proved:", bds, slns0)
-			// fmt.Println(appendIndent(fmt.Sprint(cg[0]), indent))
-			if slns0 == nil {
-				return nil
-			}
-			if len(cg) == 1 {
-				// no need go further, if nothing left
-				return slns0
-			}
-	
-			solutions = make(chan *Bindings)
-			go func() {
-				for sln0 := range slns0 {
-					bds1 := bds.combine(sln0)
-					slns1 := m.prove(cg[1:], bds1)
-					if slns1 != nil {
-						for sln1 := range slns1 {
-							solutions <- sln0.combine(sln1)
-						}
+
+		slns0 := m.prove(cg[start], bds)
+		start++
+		// fmt.Println(indent, "proved:", bds, slns0)
+		// fmt.Println(appendIndent(fmt.Sprint(cg[0]), indent))
+		if slns0 == nil {
+			return nil
+		}
+		if start == len(cg) {
+			// no need go further, if nothing left
+			return slns0
+		}
+
+		solutions = make(chan *Bindings)
+		go func() {
+			remains := cg[start:]
+			for sln0 := range slns0 {
+				bds1 := bds.combine(sln0)
+				slns1 := m.prove(remains, bds1)
+				if slns1 != nil {
+					for sln1 := range slns1 {
+						solutions <- sln0.combine(sln1)
 					}
 				}
-				close(solutions)
-			}()
-			
-			return solutions
-		}
+			}
+			close(solutions)
+		}()
+
+		return solutions
 
 	case gtOp:
 		bi := goal.(*buildin2)
@@ -435,7 +437,7 @@ func (m *Machine) match(query *ComplexTerm, rCount int) (solutions chan *Binding
 	/* localized query: query -> lq */
 	// query.gV/rV -> pVas
 	inBds := newPVarBindings(rCount)
-	
+
 	lq := query.replaceVars(inBds).(*ComplexTerm)
 	//fmt.Println(indent, "replaceVars", query, "->", lq)
 	//indent += "    "

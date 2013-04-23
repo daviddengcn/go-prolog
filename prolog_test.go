@@ -358,7 +358,6 @@ func TestProgram_GoGrid(t *testing.T) {
 	//	fmt.Println(grid(9, 9));
 }
 
-
 func TestReplaceVars(t *testing.T) {
 	f := ctFunc("f")
 	a := f(X, Y)
@@ -366,14 +365,14 @@ func TestReplaceVars(t *testing.T) {
 	pBds := newPVarBindings(0)
 	b := a.replaceVars(pBds)
 	fmt.Println(b, pBds)
-	
+
 	assertCount(t, 2, pBds.Count)
-	
+
 	rBds := make(rVarBindings)
 	c := a.replaceVars(rBds)
 	fmt.Println(c, rBds)
 	assertCount(t, 2, len(rBds))
-	
+
 	r := R(f(X, Y), f(X, Z))
 	fmt.Println(r)
 	rBds = make(rVarBindings)
