@@ -35,6 +35,9 @@ const (
 type Goal interface {
 	GoalType() int
 	replaceGoalVars(bds VarBindings) Goal
+	
+	// at most one solution
+	singleSolution() bool
 }
 
 /* Conjunction goals */
@@ -69,6 +72,16 @@ func (cg ConjGoal) replaceGoalVars(bds VarBindings) Goal {
 	return newCg
 }
 
+func (cg ConjGoal) singleSolution() bool {
+	for _, g := range cg {
+		if !g.singleSolution() {
+			return false
+		}
+	}
+	
+	return true
+}
+
 /* Disjunction goals */
 
 type DisjGoal []Goal
@@ -90,6 +103,18 @@ func (dg DisjGoal) replaceGoalVars(bds VarBindings) Goal {
 	return newDg
 }
 
+func (dg DisjGoal) singleSolution() bool {
+	if len(dg) == 0 {
+		return true
+	}
+	
+	if len(dg) == 1 {
+		return dg[0].singleSolution()
+	}
+	
+	return false
+}
+
 /* simple ComplexTerm goals */
 
 func (ct *ComplexTerm) GoalType() int {
@@ -104,6 +129,10 @@ func (ct *ComplexTerm) replaceGoalVars(bds VarBindings) Goal {
 	return newCt
 }
 
+func (ct *ComplexTerm) singleSolution() bool {
+	return false
+}
+
 func (b *buildin2) GoalType() int {
 	return gtOp
 }
@@ -111,6 +140,10 @@ func (b *buildin2) GoalType() int {
 func (bi *buildin2) replaceGoalVars(bds VarBindings) Goal {
 	return &buildin2{Op: bi.Op,
 		L: bi.L.replaceVars(bds), R: bi.R.replaceVars(bds)}
+}
+
+func (b *buildin2) singleSolution() bool {
+	return true
 }
 
 /* Term match goals */
@@ -209,6 +242,70 @@ func trivialSolution() (solutions chan *Bindings) {
 	return makeSolutions(nil)
 }
 
+func (m *Machine) process(goal Goal, bds *Bindings) bool {
+	switch goal.GoalType() {
+	case gtConj:
+		cg := goal.(ConjGoal)
+		if len(cg) == 0 {
+			// success
+			return true
+		}
+		
+		for _, g := range cg {
+			if !m.process(g, bds) {
+				return false
+			}
+		}
+		return true
+		
+	case gtOp:
+		bi := goal.(*buildin2)
+		L, R := bi.L.unify(bds), bi.R.unify(bds)
+
+		switch bi.Op {
+		case opGt, opGe, opLt, opLe, opNe:
+			// comparing operators
+			if L.Type() == ttInt && R.Type() == ttInt {
+				l, r := L.(Integer), R.(Integer)
+				bl := false
+				switch bi.Op {
+				case opGt:
+					bl = l > r
+				case opGe:
+					bl = l >= r
+				case opLt:
+					bl = l < r
+				case opLe:
+					bl = l <= r
+				case opNe:
+					bl = l != r
+				}
+
+				if bl {
+					return true
+				}
+				return false
+			}
+
+			return false
+
+		case opIs:
+			r := computeTerm(R)
+			if !matchTerm(L, r, bds) {
+				return false
+			}
+
+			// fmt.Println(indent, "opIs", bi, ",", L, "is", R, "=", r, "=>", newBds)
+			return true
+		}
+
+		panic(fmt.Sprintf("Op %s is not a valid goal.", bi))
+
+	}
+	
+	panic(fmt.Sprint(goal) + " is not singleSolution!")
+}
+
 // prove tries prove the goal send solution Bindings to the channel. After all
 // solutions are sent, the channel is closed.
 // return when all solutions are received. Often called in a go routine.
@@ -223,31 +320,41 @@ func (m *Machine) prove(goal Goal, bds *Bindings) (solutions chan *Bindings) {
 			// success
 			return trivialSolution()
 		}
-		slns0 := m.prove(cg[0], bds)
-		// fmt.Println(indent, "proved:", bds, slns0)
-		// fmt.Println(appendIndent(fmt.Sprint(cg[0]), indent))
-		if slns0 == nil {
-			return nil
-		}
-		if len(cg) == 1 {
-			// no need go further, if nothing left
-			return slns0
-		}
-
-		solutions = make(chan *Bindings)
-		go func() {
-			for sln0 := range slns0 {
-				bds1 := bds.combine(sln0)
-				slns1 := m.prove(cg[1:], bds1)
-				if slns1 != nil {
-					for sln1 := range slns1 {
-						solutions <- sln0.combine(sln1)
+		
+		if cg[0].singleSolution() {
+			if (!m.process(cg[0], bds)) {
+				return nil
+			}
+			
+			return m.prove(cg[1:], bds)
+		} else {
+			slns0 := m.prove(cg[0], bds)
+			// fmt.Println(indent, "proved:", bds, slns0)
+			// fmt.Println(appendIndent(fmt.Sprint(cg[0]), indent))
+			if slns0 == nil {
+				return nil
+			}
+			if len(cg) == 1 {
+				// no need go further, if nothing left
+				return slns0
+			}
+	
+			solutions = make(chan *Bindings)
+			go func() {
+				for sln0 := range slns0 {
+					bds1 := bds.combine(sln0)
+					slns1 := m.prove(cg[1:], bds1)
+					if slns1 != nil {
+						for sln1 := range slns1 {
+							solutions <- sln0.combine(sln1)
+						}
 					}
 				}
-			}
-			close(solutions)
-		}()
-		return solutions
+				close(solutions)
+			}()
+			
+			return solutions
+		}
 
 	case gtOp:
 		bi := goal.(*buildin2)
