@@ -34,6 +34,7 @@ const (
 
 type Goal interface {
 	GoalType() int
+	replaceGoalVars(bds VarBindings) Goal
 }
 
 /* Conjunction goals */
@@ -59,26 +60,57 @@ func (cg ConjGoal) GoalType() int {
 	return gtConj
 }
 
+func (cg ConjGoal) replaceGoalVars(bds VarBindings) Goal {
+	newCg := make(ConjGoal, len(cg))
+	for i, g := range cg {
+		newCg[i] = g.replaceGoalVars(bds)
+	}
+	
+	return newCg
+}
+
 /* Disjunction goals */
 
 type DisjGoal []Goal
-
-func (dg DisjGoal) GoalType() int {
-	return gtDisj
-}
 
 func Or(goals ...Goal) DisjGoal {
 	return DisjGoal(goals)
 }
 
+func (dg DisjGoal) GoalType() int {
+	return gtDisj
+}
+
+func (dg DisjGoal) replaceGoalVars(bds VarBindings) Goal {
+	newDg := make(DisjGoal, len(dg))
+	for i, g := range dg {
+		newDg[i] = g.replaceGoalVars(bds)
+	}
+	
+	return newDg
+}
+
 /* simple ComplexTerm goals */
 
-func (cg *ComplexTerm) GoalType() int {
+func (ct *ComplexTerm) GoalType() int {
 	return gtComplex
 }
 
-func (cg *buildin2) GoalType() int {
+func (ct *ComplexTerm) replaceGoalVars(bds VarBindings) Goal {
+	newCt := &ComplexTerm{Functor: ct.Functor, Args: make([]Term, len(ct.Args))}
+	for i, arg := range ct.Args {
+		newCt.Args[i] = arg.replaceVars(bds)
+	}
+	return newCt
+}
+
+func (b *buildin2) GoalType() int {
 	return gtOp
+}
+
+func (bi *buildin2) replaceGoalVars(bds VarBindings) Goal {
+	return &buildin2{Op: bi.Op,
+		L: bi.L.replaceVars(bds), R: bi.R.replaceVars(bds)}
 }
 
 /* Term match goals */
@@ -90,21 +122,26 @@ type MatchGoal struct {
 type Rule struct {
 	Head *ComplexTerm
 	Body Goal
+	vBds rVarBindings
+}
+
+func (r Rule) RVarCount() int {
+	return len(r.vBds)
 }
 
 // R constructs a rule with head and a conjuction goal as the body.
-func R(head *ComplexTerm, goals ...Goal) Rule {
+func R(head *ComplexTerm, goals ...Goal) *Rule {
 	switch len(goals) {
 	case 0:
-		return Rule{Head: head}
+		return &Rule{Head: head}
 
 	case 1:
-		return Rule{Head: head, Body: goals[0]}
+		return &Rule{Head: head, Body: goals[0]}
 	}
-	return Rule{Head: head, Body: ConjGoal(goals)}
+	return &Rule{Head: head, Body: ConjGoal(goals)}
 }
 
-func (r Rule) String() string {
+func (r *Rule) String() string {
 	var buf bytes.Buffer
 	buf.WriteString(r.Head.String())
 	if r.Body != nil {
@@ -120,25 +157,34 @@ func (r Rule) String() string {
 *****************/
 
 type Machine struct {
-	rules map[string][]Rule
+	rules map[string][]*Rule
 }
 
 func (m *Machine) AddFact(head *ComplexTerm) {
-	m.AddRule(Rule{Head: head})
+	m.AddRule(&Rule{Head: head})
 }
 
-func (m *Machine) AddRule(rule Rule) {
+func (m *Machine) AddRule(rule *Rule) {
+	fmt.Println(appendIndent(fmt.Sprint(rule), "    ") + "\n")
+	
 	key := rule.Head.Key()
 	m.rules[key] = append(m.rules[key], rule)
-	fmt.Println(appendIndent(fmt.Sprint(rule), "    ") + "\n")
+	
+	bds := make(rVarBindings)
+	rule.Head = rule.Head.replaceVars(bds).(*ComplexTerm)
+	if rule.Body != nil {
+		rule.Body = rule.Body.replaceGoalVars(bds)
+	}
+	rule.vBds = bds
+	fmt.Println("Replaced:", appendIndent(fmt.Sprint(rule), "    ") + "\n")
 }
 
 // returns nil if not matched
-func matchHead(rule, q *ComplexTerm) (bds Bindings) {
-	bds = make(Bindings)
-	for i, ruleArg := range rule.Args {
+func (r Rule) matchHead(q *ComplexTerm) *Bindings {
+	bds := newBindings(r.RVarCount())
+	for i, headArg := range r.Head.Args {
 		qArg := q.Args[i]
-		if !matchTerm(ruleArg, qArg, bds) {
+		if !matchTerm(headArg, qArg, bds) {
 			return nil
 		}
 	}
@@ -146,12 +192,12 @@ func matchHead(rule, q *ComplexTerm) (bds Bindings) {
 	return bds
 }
 
-func (m *Machine) Prove(goal Goal) (solutions chan Bindings) {
+func (m *Machine) Prove(goal Goal) (solutions chan *Bindings) {
 	return m.prove(goal, nil)
 }
 
-func makeSolutions(slns ...Bindings) (solutions chan Bindings) {
-	solutions = make(chan Bindings, len(slns))
+func makeSolutions(slns ...*Bindings) (solutions chan *Bindings) {
+	solutions = make(chan *Bindings, len(slns))
 	for _, sln := range slns {
 		solutions <- sln
 	}
@@ -159,7 +205,7 @@ func makeSolutions(slns ...Bindings) (solutions chan Bindings) {
 	return solutions
 }
 
-func trivialSolution() (solutions chan Bindings) {
+func trivialSolution() (solutions chan *Bindings) {
 	return makeSolutions(nil)
 }
 
@@ -167,7 +213,7 @@ func trivialSolution() (solutions chan Bindings) {
 // solutions are sent, the channel is closed.
 // return when all solutions are received. Often called in a go routine.
 // nil solutions returned means failure.
-func (m *Machine) prove(goal Goal, bds Bindings) (solutions chan Bindings) {
+func (m *Machine) prove(goal Goal, bds *Bindings) (solutions chan *Bindings) {
 	// fmt.Println(indent, "prove:", bds)
 	// fmt.Println(appendIndent(fmt.Sprint(goal), indent))
 	switch goal.GoalType() {
@@ -188,7 +234,7 @@ func (m *Machine) prove(goal Goal, bds Bindings) (solutions chan Bindings) {
 			return slns0
 		}
 
-		solutions = make(chan Bindings)
+		solutions = make(chan *Bindings)
 		go func() {
 			for sln0 := range slns0 {
 				bds1 := bds.combine(sln0)
@@ -236,7 +282,7 @@ func (m *Machine) prove(goal Goal, bds Bindings) (solutions chan Bindings) {
 
 		case opIs:
 			r := computeTerm(R)
-			newBds := make(Bindings)
+			newBds := newBindingsFrom(bds)
 			if !matchTerm(L, r, newBds) {
 				return nil
 			}
@@ -251,7 +297,7 @@ func (m *Machine) prove(goal Goal, bds Bindings) (solutions chan Bindings) {
 		ct := goal.(*ComplexTerm)
 		ct = ct.unify(bds).(*ComplexTerm)
 
-		return m.Match(ct)
+		return m.match(ct, bds.RVarCount())
 
 	default:
 		panic(fmt.Sprintf("Goal not supported: %s", goal))
@@ -260,11 +306,11 @@ func (m *Machine) prove(goal Goal, bds Bindings) (solutions chan Bindings) {
 	return nil
 }
 
-func calcSolution(inBds VarBindings, bds Bindings) (sln Bindings) {
-	sln = make(Bindings)
-	for v, vl := range inBds {
-		sln[v] = vl.unify(bds)
-	}
+func calcSolution(rCount int, inBds *pVarBindings, bds *Bindings) (sln *Bindings) {
+	sln = newBindings(rCount)
+	inBds.each(func(v, vl variable) {
+		sln.put(v, vl.export(bds))
+	})
 
 	return sln
 }
@@ -272,30 +318,39 @@ func calcSolution(inBds VarBindings, bds Bindings) (sln Bindings) {
 // for debugging
 var indent string
 
-func (m *Machine) Match(query *ComplexTerm) (solutions chan Bindings) {
-	inBds := make(VarBindings)
-	// localized query
-	lq := query.repQueryVars(inBds).(*ComplexTerm)
-	// fmt.Println(indent, "Match:", query, lq)
+func (m *Machine) Match(query *ComplexTerm) (solutions chan *Bindings) {
+	return m.match(query, 0)
+}
+
+// rCount: number of rule vars for query environment
+// solution: gV/rV -> const/gV
+func (m *Machine) match(query *ComplexTerm, rCount int) (solutions chan *Bindings) {
+	/* localized query: query -> lq */
+	// query.gV/rV -> pVas
+	inBds := newPVarBindings(rCount)
+	
+	lq := query.replaceVars(inBds).(*ComplexTerm)
+	//fmt.Println(indent, "replaceVars", query, "->", lq)
 	//indent += "    "
 	//defer func() { indent = indent[:len(indent)-4] }()
 
-	solutions = make(chan Bindings)
+	// each solution: query.g/rVars -> const, gVars
+	solutions = make(chan *Bindings)
 
 	go func() {
 		rules := m.rules[query.Key()]
 		for _, rule := range rules {
-			hdBds := matchHead(rule.Head, lq)
+			hdBds := rule.matchHead(lq)
 			if hdBds == nil {
 				// head not matched
 				continue
 			}
-			fmt.Println(indent, "Head", lq, rule.Head, hdBds)
+			//fmt.Println(indent, "Head matched:", lq, "<->", rule.Head, "under", hdBds)
 
 			if rule.Body == nil {
 				// For a head-matched fact, generate a single solution.
-				// fmt.Println(indent, lq, "Fact", rule.Head, hdBds)
-				solutions <- calcSolution(inBds, hdBds)
+				//fmt.Println(indent, lq, "Fact", rule.Head, hdBds)
+				solutions <- calcSolution(rCount, inBds, hdBds)
 				//break
 				continue
 			}
@@ -304,7 +359,7 @@ func (m *Machine) Match(query *ComplexTerm) (solutions chan Bindings) {
 			if slns != nil {
 				for sln := range slns {
 					// fmt.Println(indent, "sln:", sln, hdBds)
-					solutions <- calcSolution(inBds, hdBds.combine(sln))
+					solutions <- calcSolution(rCount, inBds, hdBds.combine(sln))
 				}
 			}
 		}
@@ -315,5 +370,5 @@ func (m *Machine) Match(query *ComplexTerm) (solutions chan Bindings) {
 }
 
 func NewMachine() *Machine {
-	return &Machine{rules: map[string][]Rule{}}
+	return &Machine{rules: make(map[string][]*Rule)}
 }

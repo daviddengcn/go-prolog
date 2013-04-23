@@ -3,6 +3,7 @@ package prolog
 import (
 	"bytes"
 	"fmt"
+	"github.com/daviddengcn/go-villa"
 	//	"strconv"
 	//"strings"
 )
@@ -17,20 +18,25 @@ const (
 	ttBuildin        // Buildin operators
 )
 
+type VarBindings interface {
+	get(v variable) variable
+}
+
 type Term interface {
 	Type() int
 	// replace query variabls with p-variables
 	// bds: q-var -> p-var
 	// pIndex of variables in bds are from 0 - len(bds) -1, if a new variable
 	// has to be generated, use pV(len(bds), then put it into bds
-	repQueryVars(bds VarBindings) (newT Term)
-
+	replaceVars(bds VarBindings) (newT Term)
+	
 	// l: the receiver
 	// l and R has be unifyVar before called
 	// if l is not Variable, R is not Variable
-	Match(R Term, bds Bindings) bool
+	Match(R Term, bds *Bindings) bool
 
-	unify(bds Bindings) Term
+	unify(bds *Bindings) Term
+	export(bds *Bindings) Term
 }
 
 func isPrologVariableStart(c byte) bool {
@@ -82,11 +88,11 @@ func (at atom) Type() int {
 	return ttAtom
 }
 
-func (at atom) repQueryVars(bds VarBindings) Term {
+func (at atom) replaceVars(bds VarBindings) Term {
 	return at
 }
 
-func (l atom) Match(R Term, bds Bindings) bool {
+func (l atom) Match(R Term, bds *Bindings) bool {
 	if r, ok := R.(atom); ok {
 		return l == r
 	}
@@ -94,7 +100,11 @@ func (l atom) Match(R Term, bds Bindings) bool {
 	return R.Match(l, bds)
 }
 
-func (at atom) unify(bds Bindings) Term {
+func (at atom) unify(bds *Bindings) Term {
+	return at
+}
+
+func (at atom) export(bds *Bindings) Term {
 	return at
 }
 
@@ -110,11 +120,11 @@ func (i Integer) Type() int {
 	return ttInt
 }
 
-func (i Integer) repQueryVars(bds VarBindings) Term {
+func (i Integer) replaceVars(bds VarBindings) Term {
 	return i
 }
 
-func (l Integer) Match(R Term, bds Bindings) bool {
+func (l Integer) Match(R Term, bds *Bindings) bool {
 	if R.Type() == ttAtom {
 		return false
 	}
@@ -126,7 +136,11 @@ func (l Integer) Match(R Term, bds Bindings) bool {
 	return R.Match(l, bds)
 }
 
-func (i Integer) unify(bds Bindings) Term {
+func (i Integer) unify(bds *Bindings) Term {
+	return i
+}
+
+func (i Integer) export(bds *Bindings) Term {
 	return i
 }
 
@@ -140,12 +154,43 @@ func V(name string) variable {
 	return variable(gVarPool.indexOfName(name))
 }
 
-func pV(pIndex int) variable {
-	return variable(-(pIndex*2 + 1))
+// gIndex -> variable
+func gV(gIndex int) variable {
+	return variable(-(gIndex + 1)*4)
+}
+// variable -> gIndex
+func (v variable) gIndex() int {
+	return (-int(v))/4 - 1
+}
+// whether v is a g-variable
+func (v variable) isG() bool {
+	return v < 0 && (-int(v)) % 4 == 0
 }
 
+// pIndex -> variable
+func pV(pIndex int) variable {
+	return variable(-(pIndex*4 + 1))
+}
+// variable -> pIndex
 func (v variable) pIndex() int {
-	return (-int(v)) / 2
+	return (-int(v)) / 4
+}
+// whether v is a p-variable
+func (v variable) isP() bool {
+	return v < 0 && (-int(v)) % 4 == 1
+}
+
+// rIndex -> variable
+func rV(rIndex int) variable {
+	return variable(-(rIndex*4 + 2))
+}
+// variable -> rIndex
+func (v variable) rIndex() int {
+	return (-int(v)) / 4
+}
+// whether v is a r-variable
+func (v variable) isR() bool {
+	return v < 0 && (-int(v)) % 4 == 2
 }
 
 func (v variable) Type() int {
@@ -156,45 +201,44 @@ func (v variable) String() string {
 	if v >= 0 {
 		return gVarPool.nameOfIndex(int(v))
 	}
-	
-	idx := -v
-	
-	if idx % 2 == 0 {
-		return fmt.Sprintf("G_%d", idx/2)
+
+	if v.isG() {
+		return fmt.Sprintf("G_%d", v.gIndex())
 	}
 	
-	return fmt.Sprintf("P_%d", idx/2)
-}
-
-func (v variable) repQueryVars(bds VarBindings) Term {
-	newV, ok := bds[v]
-	if ok {
-		return newV
+	if v.isP() {
+		return fmt.Sprintf("P_%d", v.pIndex())
 	}
-	newV = pV(len(bds))
-	bds[v] = newV
-
-	return newV
+	
+	if v.isR() {
+		return fmt.Sprintf("R_%d", v.rIndex())
+	}
+	
+	return fmt.Sprint("Invalid_%d", -v)
 }
 
-func (l variable) Match(R Term, bds Bindings) bool {
+func (v variable) replaceVars(bds VarBindings) Term {
+	return bds.get(v)
+}
+
+func (l variable) Match(R Term, bds *Bindings) bool {
 	if R.Type() == ttVar {
 		// both Variable's
 		r := R.(variable)
 		if l != r {
 			s := genUniqueVar()
-			bds[l] = s
-			bds[r] = s
+			bds.put(l, s)
+			bds.put(r, s)
 			// Otherwise already matche
 		}
 	} else {
 		// lV <= R
-		bds[l] = R
+		bds.put(l, R)
 	}
 	return true
 }
 
-func (v variable) unify(bds Bindings) Term {
+func (v variable) unify(bds *Bindings) Term {
 	t := bds.unifyVar(v)
 	if t.Type() != ttVar {
 		return t.unify(bds)
@@ -203,14 +247,29 @@ func (v variable) unify(bds Bindings) Term {
 	return t
 }
 
+func (v variable) export(bds *Bindings) Term {
+	t := bds.unifyVar(v)
+	if t.Type() != ttVar {
+		return t.export(bds)
+	}
+
+	vl := t.(variable)
+	if vl.isR() {
+		s := genUniqueVar()
+		bds.put(vl, s)
+		return s
+	}
+	return t
+}
+
 var gUniqueVarChan chan variable
 
 func init() {
 	gUniqueVarChan = make(chan variable, 10)
 	go func() {
-		counter := 1
+		counter := 0
 		for {
-			gUniqueVarChan <- variable(-(counter*2))
+			gUniqueVarChan <- gV(counter)
 			counter ++
 		}
 	}()
@@ -241,10 +300,10 @@ func (ct *ComplexTerm) Type() int {
 	return ttComplex
 }
 
-func (ct *ComplexTerm) repQueryVars(bds VarBindings) Term {
+func (ct *ComplexTerm) replaceVars(bds VarBindings) Term {
 	newCt := &ComplexTerm{Functor: ct.Functor, Args: make([]Term, len(ct.Args))}
 	for i, arg := range ct.Args {
-		newCt.Args[i] = arg.repQueryVars(bds)
+		newCt.Args[i] = arg.replaceVars(bds)
 	}
 	return newCt
 }
@@ -269,7 +328,7 @@ func (ct *ComplexTerm) String() string {
 	return buf.String()
 }
 
-func (l *ComplexTerm) Match(R Term, bds Bindings) bool {
+func (l *ComplexTerm) Match(R Term, bds *Bindings) bool {
 	if R.Type() != ttComplex {
 		return false
 	}
@@ -289,10 +348,18 @@ func (l *ComplexTerm) Match(R Term, bds Bindings) bool {
 	return true
 }
 
-func (ct *ComplexTerm) unify(bds Bindings) Term {
+func (ct *ComplexTerm) unify(bds *Bindings) Term {
 	newArgs := make([]Term, len(ct.Args))
 	for i, arg := range ct.Args {
 		newArgs[i] = arg.unify(bds)
+	}
+	return &ComplexTerm{Functor: ct.Functor, Args: newArgs}
+}
+
+func (ct *ComplexTerm) export(bds *Bindings) Term {
+	newArgs := make([]Term, len(ct.Args))
+	for i, arg := range ct.Args {
+		newArgs[i] = arg.export(bds)
 	}
 	return &ComplexTerm{Functor: ct.Functor, Args: newArgs}
 }
@@ -313,15 +380,15 @@ func (l List) Type() int {
 	return ttList
 }
 
-func (l List) repQueryVars(bds VarBindings) Term {
+func (l List) replaceVars(bds VarBindings) Term {
 	newL := make(List, len(l))
 	for i, el := range l {
-		newL[i] = el.repQueryVars(bds)
+		newL[i] = el.replaceVars(bds)
 	}
 	return newL
 }
 
-func (l List) Match(R Term, bds Bindings) bool {
+func (l List) Match(R Term, bds *Bindings) bool {
 	if R.Type() != ttList {
 		return false
 	}
@@ -345,10 +412,18 @@ func (l List) Match(R Term, bds Bindings) bool {
 	return true
 }
 
-func (l List) unify(bds Bindings) Term {
+func (l List) unify(bds *Bindings) Term {
 	newL := make(List, len(l))
 	for i, el := range l {
 		newL[i] = el.unify(bds)
+	}
+	return newL
+}
+
+func (l List) export(bds *Bindings) Term {
+	newL := make(List, len(l))
+	for i, el := range l {
+		newL[i] = el.export(bds)
 	}
 	return newL
 }
@@ -374,12 +449,12 @@ func (l HeadTail) String() string {
 	return fmt.Sprintf("[%s|%s]", l.Head, l.Tail)
 }
 
-func (l HeadTail) repQueryVars(bds VarBindings) Term {
-	return HeadTail{Head: l.Head.repQueryVars(bds),
-		Tail: l.Tail.repQueryVars(bds)}
+func (l HeadTail) replaceVars(bds VarBindings) Term {
+	return HeadTail{Head: l.Head.replaceVars(bds),
+		Tail: l.Tail.replaceVars(bds)}
 }
 
-func (l HeadTail) Match(R Term, bds Bindings) bool {
+func (l HeadTail) Match(R Term, bds *Bindings) bool {
 	if R.Type() != ttList {
 		return false
 	}
@@ -411,9 +486,19 @@ func (l HeadTail) Match(R Term, bds Bindings) bool {
 	return true
 }
 
-func (l HeadTail) unify(bds Bindings) Term {
+func (l HeadTail) unify(bds *Bindings) Term {
 	head := l.Head.unify(bds)
 	tail := l.Tail.unify(bds)
+	if tl, ok := tail.(List); ok {
+		// merge back to List
+		return append(List{head}, tl...)
+	}
+	return HeadTail{Head: head, Tail: tail}
+}
+
+func (l HeadTail) export(bds *Bindings) Term {
+	head := l.Head.export(bds)
+	tail := l.Tail.export(bds)
 	if tl, ok := tail.(List); ok {
 		// merge back to List
 		return append(List{head}, tl...)
@@ -438,12 +523,12 @@ func (at FirstLeft) String() string {
 	return fmt.Sprintf("%s+%s", at.First, at.Left)
 }
 
-func (at FirstLeft) repQueryVars(bds VarBindings) Term {
-	return FirstLeft{First: at.First.repQueryVars(bds),
-		Left: at.Left.repQueryVars(bds)}
+func (at FirstLeft) replaceVars(bds VarBindings) Term {
+	return FirstLeft{First: at.First.replaceVars(bds),
+		Left: at.Left.replaceVars(bds)}
 }
 
-func (l FirstLeft) Match(R Term, bds Bindings) bool {
+func (l FirstLeft) Match(R Term, bds *Bindings) bool {
 	if R.Type() != ttAtom {
 		return false
 	}
@@ -473,9 +558,21 @@ func (l FirstLeft) Match(R Term, bds Bindings) bool {
 	return true
 }
 
-func (at FirstLeft) unify(bds Bindings) Term {
+func (at FirstLeft) unify(bds *Bindings) Term {
 	first := at.First.unify(bds)
 	left := at.Left.unify(bds)
+
+	if fst, ok := first.(atom); ok {
+		if lft, ok := left.(atom); ok {
+			return A(fst.String() + lft.String())
+		}
+	}
+	return FirstLeft{First: first, Left: left}
+}
+
+func (at FirstLeft) export(bds *Bindings) Term {
+	first := at.First.export(bds)
+	left := at.Left.export(bds)
 
 	if fst, ok := first.(atom); ok {
 		if lft, ok := left.(atom); ok {
@@ -572,15 +669,15 @@ func (bi *buildin2) Type() int {
 }
 
 // replace query variabls
-func (bi *buildin2) repQueryVars(bds VarBindings) (newT Term) {
+func (bi *buildin2) replaceVars(bds VarBindings) (newT Term) {
 	return &buildin2{Op: bi.Op,
-		L: bi.L.repQueryVars(bds), R: bi.R.repQueryVars(bds)}
+		L: bi.L.replaceVars(bds), R: bi.R.replaceVars(bds)}
 }
 
 // l: the receiver
 // l and R has be unifyVar before called
 // if l is not Variable, R is not Variable
-func (l *buildin2) Match(R Term, bds Bindings) bool {
+func (l *buildin2) Match(R Term, bds *Bindings) bool {
 	if r, ok := R.(*buildin2); ok {
 		if l.Op != r.Op {
 			return false
@@ -591,9 +688,14 @@ func (l *buildin2) Match(R Term, bds Bindings) bool {
 	return false
 }
 
-func (bi *buildin2) unify(bds Bindings) Term {
+func (bi *buildin2) unify(bds *Bindings) Term {
 	return &buildin2{Op: bi.Op,
 		L: bi.L.unify(bds), R: bi.R.unify(bds)}
+}
+
+func (bi *buildin2) export(bds *Bindings) Term {
+	return &buildin2{Op: bi.Op,
+		L: bi.L.export(bds), R: bi.R.export(bds)}
 }
 
 func isNumber(T Term) bool {
@@ -639,18 +741,214 @@ func (bi *buildin2) compute() Term {
 	return nil
 }
 
-/* VarBindings */
-type VarBindings map[variable]variable
+/* pVarBindings: gV/rV -> pV */
+type pVarBindings struct {
+	rList []*variable
+	gMap map[variable]variable
+	Count int
+}
+
+func (bds *pVarBindings) String() string {
+	var buf bytes.Buffer
+	buf.WriteRune('[')
+	first := true
+	if bds != nil {
+		for i, vl := range bds.rList {
+			if vl == nil {
+				continue
+			}
+			if first {
+				first = false
+			} else {
+				buf.WriteRune(' ')
+			}
+			
+			buf.WriteString(fmt.Sprintf("%v->%v", rV(i), vl))
+		}
+		
+		keys := make([]variable, 0, len(bds.gMap))
+		for v := range bds.gMap {
+			keys = append(keys, v)
+		}
+		villa.SortF(len(keys), func(i, j int) bool {
+			return keys[i].String() < keys[j].String()
+		}, func(i, j int) {
+			keys[i], keys[j] = keys[j], keys[i]
+		})
+		
+		for _, v := range(keys) {
+			vl := bds.gMap[v]
+			
+			if first {
+				first = false
+			} else {
+				buf.WriteRune(' ')
+			}
+			
+			buf.WriteString(fmt.Sprintf("%v->%v", v, vl))
+		}
+		
+	}
+	buf.WriteRune(']')
+	return buf.String()
+}
+
+func (bds *pVarBindings) get(v variable) (newV variable) {
+	if v.isR() {
+		pv := bds.rList[v.rIndex()]
+		if pv != nil {
+			return *pv
+		}
+		
+		newV = pV(bds.Count)
+		bds.rList[v.rIndex()] = &newV
+		bds.Count ++
+		return newV
+	}
+	
+	newV, ok := bds.gMap[v]
+	if ok {
+		return newV
+	}
+	newV = pV(bds.Count)
+	
+	if bds.gMap == nil {
+		bds.gMap = make(map[variable]variable)
+	}
+	bds.gMap[v] = newV
+	bds.Count ++
+
+	return newV
+}
+
+func (bds *pVarBindings) each(callback func(v, vl variable)) {
+	for i, vl := range bds.rList {
+		if vl != nil {
+			callback(rV(i), *vl)
+		}
+	}
+	
+	for v, vl := range bds.gMap {
+		callback(v, vl)
+	}
+}
+
+func newPVarBindings(nRVars int) *pVarBindings {
+	return &pVarBindings{rList: make([]*variable, nRVars)}
+}
+
+/* rVarBindings: gV -> rV */
+type rVarBindings map[variable]variable
+
+func (bds rVarBindings) get(v variable) variable {
+	newV, ok := bds[v]
+	if ok {
+		return newV
+	}
+	newV = rV(len(bds))
+	bds[v] = newV
+
+	return newV
+}
 
 /* Bindings: Variable map to its value as a Term */
 
-type Bindings map[variable]Term
+type Bindings struct {
+	rList []Term
+	gMap map[variable]Term
+}
+
+func newBindings(nRVars int) *Bindings {
+	return &Bindings{rList: make([]Term, nRVars)}
+}
+
+func newBindingsFrom(bds *Bindings) *Bindings {
+	return &Bindings{rList: make([]Term, len(bds.rList))}
+}
+
+func (bds *Bindings) String() string {
+	var buf bytes.Buffer
+	buf.WriteRune('[')
+	first := true
+	if bds != nil {
+		for i, vl := range bds.rList {
+			if vl == nil {
+				continue
+			}
+			if first {
+				first = false
+			} else {
+				buf.WriteRune(' ')
+			}
+			
+			buf.WriteString(fmt.Sprintf("%v->%v", rV(i), vl))
+		}
+		
+		keys := make([]variable, 0, len(bds.gMap))
+		for v := range bds.gMap {
+			keys = append(keys, v)
+		}
+		villa.SortF(len(keys), func(i, j int) bool {
+			return keys[i].String() < keys[j].String()
+		}, func(i, j int) {
+			keys[i], keys[j] = keys[j], keys[i]
+		})
+		
+		for _, v := range(keys) {
+			vl := bds.gMap[v]
+			
+			if first {
+				first = false
+			} else {
+				buf.WriteRune(' ')
+			}
+			
+			buf.WriteString(fmt.Sprintf("%v->%v", v, vl))
+		}
+		
+	}
+	buf.WriteRune(']')
+	return buf.String()
+}
+
+func (bds *Bindings) put(v variable, t Term) {
+	if v.isR() {
+		bds.rList[v.rIndex()] = t
+		return
+	}
+	
+	bds.putG(v, t)
+}
+
+func (bds *Bindings) putG(v variable, t Term) {
+	if bds.gMap == nil {
+		bds.gMap = make(map[variable]Term)
+	}
+	bds.gMap[v] = t
+}
+
+// returns nil if no bindings
+func (bds *Bindings) get(v variable) Term {
+	if (bds == nil) {
+		return nil
+	}
+	
+	if v.isR() {
+		return bds.rList[v.rIndex()]
+	}
+	
+	return bds.gMap[v]
+}
+
+func (bds *Bindings) RVarCount() int {
+	return len(bds.rList)
+}
 
 // keep unify until t is no longer a Variable, but no further unify
-func (bds Bindings) unifyVar(t Term) Term {
+func (bds *Bindings) unifyVar(t Term) Term {
 	for t.Type() == ttVar {
 		v := t.(variable)
-		i := bds[v]
+		i := bds.get(v)
 		if i == nil {
 			break
 		}
@@ -660,23 +958,27 @@ func (bds Bindings) unifyVar(t Term) Term {
 }
 
 // c = a + b...
-func (a Bindings) combine(bs ...Bindings) (c Bindings) {
-	c = make(Bindings)
-
-	for v, vl := range a {
-		c[v] = vl
+func (a *Bindings) combine(b *Bindings) (c *Bindings) {
+	if b == nil {
+		return a
 	}
-
-	for _, b := range bs {
-		for v, vl := range b {
-			c[v] = vl
+	
+	if a != nil {
+		for i, v := range a.rList {
+			if v != nil {
+				b.rList[i] = v
+			}
+		}
+		for v, vl := range a.gMap {
+			b.putG(v, vl)
 		}
 	}
-
-	return c
+	return b
 }
 
-func matchTerm(L, R Term, bds Bindings) (succ bool) {
+/* matchTerm */
+
+func matchTerm(L, R Term, bds *Bindings) (succ bool) {
 	if L.Type() == ttVar {
 		L = bds.unifyVar(L)
 	}
@@ -698,6 +1000,8 @@ func matchTerm(L, R Term, bds Bindings) (succ bool) {
 
 	return R.Match(L, bds)
 }
+
+/* computeTerm */
 
 func computeTerm(T Term) Term {
 	switch T.Type() {

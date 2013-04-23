@@ -18,7 +18,7 @@ func match(m *Machine, ct *ComplexTerm) int {
 	if slns != nil {
 		for sln := range slns {
 			count++
-			fmt.Println("    For", sln)
+			fmt.Println("    For", sln, ", i.e.", ct.unify(sln))
 		}
 	}
 	if count > 0 {
@@ -38,7 +38,7 @@ func calcInt(m *Machine, ct *ComplexTerm, rV variable) (vl []int) {
 		for sln := range slns {
 			count++
 			fmt.Println("    For", sln)
-			vl = append(vl, int(sln[rV].(Integer)))
+			vl = append(vl, int(sln.get(rV).(Integer)))
 		}
 	}
 	if count > 0 {
@@ -270,10 +270,10 @@ func TestProgram_Grid(t *testing.T) {
 		grid(X, Y1, Z2),
 		Is(Z, Op(Z1, "+", Z2))))
 
-	//	calcInt(m, grid(1, 1, X), X)
-	//	calcInt(m, grid(2, 2, X), X)
+	//	calcInt(m, grid(1, 1, X), V(X))
+	// calcInt(m, grid(2, 2, X), V(X))
 
-//	calcInt(m, grid(9, 9, X), V(X))
+	calcInt(m, grid(9, 9, X), V(X))
 
 	fmt.Printf("Machine: %+v\n", m)
 }
@@ -353,7 +353,32 @@ func TestProgram_GoGrid(t *testing.T) {
 
 	//	fmt.Println(<-grid("m", "n", "z", map[string]interface{}{"m": 1, "n": 1}))
 	//	fmt.Println(<-grid("m", "n", "z", map[string]interface{}{"m": 2, "n": 2}))
-	//	fmt.Println(<-grid("m", "n", "z", map[string]interface{}{"m": 9, "n": 9}))
+	//fmt.Println(<-grid("m", "n", "z", map[string]interface{}{"m": 9, "n": 9}))
 	//	fmt.Println(grid(2, 2));
 	//	fmt.Println(grid(9, 9));
+}
+
+
+func TestReplaceVars(t *testing.T) {
+	f := ctFunc("f")
+	a := f(X, Y)
+	fmt.Println(a)
+	pBds := newPVarBindings(0)
+	b := a.replaceVars(pBds)
+	fmt.Println(b, pBds)
+	
+	assertCount(t, 2, pBds.Count)
+	
+	rBds := make(rVarBindings)
+	c := a.replaceVars(rBds)
+	fmt.Println(c, rBds)
+	assertCount(t, 2, len(rBds))
+	
+	r := R(f(X, Y), f(X, Z))
+	fmt.Println(r)
+	rBds = make(rVarBindings)
+	r.Head = r.Head.replaceVars(rBds).(*ComplexTerm)
+	r.Body = r.Body.replaceGoalVars(rBds)
+	fmt.Println(r, rBds)
+	assertCount(t, 3, len(rBds))
 }
