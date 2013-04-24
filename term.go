@@ -1,4 +1,4 @@
-package prolog
+package plg
 
 import (
 	"bytes"
@@ -232,13 +232,13 @@ func (l variable) Match(R Term, bds *Bindings) bool {
 		r := R.(variable)
 		if l != r {
 			s := genUniqueVar()
-			bds.put(l, s)
-			bds.put(r, s)
+			bds.Put(l, s)
+			bds.Put(r, s)
 			// Otherwise already matche
 		}
 	} else {
 		// lV <= R
-		bds.put(l, R)
+		bds.Put(l, R)
 	}
 	return true
 }
@@ -261,7 +261,7 @@ func (v variable) export(bds *Bindings) Term {
 	vl := t.(variable)
 	if vl.isR() {
 		s := genUniqueVar()
-		bds.put(vl, s)
+		bds.Put(vl, s)
 		return s
 	}
 	return t
@@ -917,7 +917,7 @@ func (bds *Bindings) String() string {
 	return buf.String()
 }
 
-func (bds *Bindings) put(v variable, t Term) {
+func (bds *Bindings) Put(v variable, t Term) {
 	if v.isR() {
 		bds.rList[v.rIndex()] = t
 		return
@@ -934,7 +934,7 @@ func (bds *Bindings) putG(v variable, t Term) {
 }
 
 // returns nil if no bindings
-func (bds *Bindings) get(v variable) Term {
+func (bds *Bindings) Get(v variable) Term {
 	if bds == nil {
 		return nil
 	}
@@ -954,7 +954,7 @@ func (bds *Bindings) RVarCount() int {
 func (bds *Bindings) unifyVar(t Term) Term {
 	for t.Type() == ttVar {
 		v := t.(variable)
-		i := bds.get(v)
+		i := bds.Get(v)
 		if i == nil {
 			break
 		}

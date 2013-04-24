@@ -1,4 +1,4 @@
-package prolog
+package plg
 
 import (
 	"bytes"
@@ -418,7 +418,7 @@ func (m *Machine) prove(goal Goal, bds *Bindings) (solutions chan *Bindings) {
 func calcSolution(rCount int, inBds *pVarBindings, bds *Bindings) (sln *Bindings) {
 	sln = newBindings(rCount)
 	inBds.each(func(v, vl variable) {
-		sln.put(v, vl.export(bds))
+		sln.Put(v, vl.export(bds))
 	})
 
 	return sln
