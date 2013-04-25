@@ -84,6 +84,14 @@ func grid(w, h int) {
 	fmt.Printf("Machine: %+v\n", m)
 }
 
+func goGrid(w, h int) int {
+	if w == 0 || h == 0 {
+		return 1
+	}
+	
+	return goGrid(w - 1, h) + goGrid(w, h - 1)
+}
+
 func main() {
 	/*
 	f, err := os.Create("simple.cpu.prof")
@@ -98,6 +106,7 @@ func main() {
 	
 	start := time.Now()
 	grid(11, 11)
+//	fmt.Println(goGrid(11, 11))
 	end := time.Now()
 	dur := end.Sub(start)
 	fmt.Println(dur)
