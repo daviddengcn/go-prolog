@@ -38,7 +38,7 @@ func calcInt(m *Machine, ct *ComplexTerm, rV variable) (vl []int) {
 		for sln := range slns {
 			count++
 			fmt.Println("    For", sln)
-			vl = append(vl, int(sln.get(rV).(Integer)))
+			vl = append(vl, int(sln.Get(rV).(Integer)))
 		}
 	}
 	if count > 0 {

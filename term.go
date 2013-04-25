@@ -860,16 +860,17 @@ func (bds rVarBindings) get(v variable) variable {
 /* Bindings: Variable map to its value as a Term */
 
 type Bindings struct {
+	nRVars int
 	rList []Term
-	gMap  map[variable]Term
+	gMap map[variable]Term
 }
 
 func newBindings(nRVars int) *Bindings {
-	return &Bindings{rList: make([]Term, nRVars)}
+	return &Bindings{nRVars: nRVars}
 }
 
 func newBindingsFrom(bds *Bindings) *Bindings {
-	return &Bindings{rList: make([]Term, len(bds.rList))}
+	return &Bindings{nRVars: len(bds.rList)}
 }
 
 func (bds *Bindings) String() string {
@@ -919,7 +920,14 @@ func (bds *Bindings) String() string {
 
 func (bds *Bindings) Put(v variable, t Term) {
 	if v.isR() {
-		bds.rList[v.rIndex()] = t
+		idx := v.rIndex()
+		if bds.rList == nil {
+			if idx >= bds.nRVars {
+				panic(fmt.Sprintf("Index %d is out of range(< %d)!", idx, bds.nRVars))
+			}
+			bds.rList = make([]Term, bds.nRVars)
+		}
+		bds.rList[idx] = t
 		return
 	}
 
@@ -940,7 +948,14 @@ func (bds *Bindings) Get(v variable) Term {
 	}
 
 	if v.isR() {
-		return bds.rList[v.rIndex()]
+		idx := v.rIndex()
+		if bds.rList == nil {
+			if idx >= bds.nRVars {
+				panic(fmt.Sprintf("Index %d is out of range(< %d)!", idx, bds.nRVars))
+			}
+			return nil
+		}
+		return bds.rList[idx]
 	}
 
 	return bds.gMap[v]
@@ -972,6 +987,9 @@ func (a *Bindings) combine(b *Bindings) (c *Bindings) {
 	if a != nil {
 		for i, v := range a.rList {
 			if v != nil {
+				if b.rList == nil {
+					b.rList = make([]Term, a.nRVars)
+				}
 				b.rList[i] = v
 			}
 		}

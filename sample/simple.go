@@ -3,8 +3,8 @@ package main
 import (
 	"github.com/daviddengcn/go-prolog"
 	"fmt"
-	"os"
-	"runtime/pprof"
+//	"os"
+//	"runtime/pprof"
 	"time"
 	"log"
 )
@@ -85,6 +85,7 @@ func grid(w, h int) {
 }
 
 func main() {
+	/*
 	f, err := os.Create("simple.cpu.prof")
 	if err != nil {
 		log.Fatal(err)
@@ -93,13 +94,10 @@ func main() {
 	defer func() {
 		pprof.StopCPUProfile()
 	}()
+	*/
 	
-	fmt.Printf("%#v\n", pprof.Profiles()[0])
-	fmt.Printf("%#v\n", pprof.Profiles()[1])
-	fmt.Printf("%#v\n", pprof.Profiles()[2])
-
 	start := time.Now()
-	grid(11, 11)
+	grid(9, 9)
 	end := time.Now()
 	dur := end.Sub(start)
 	fmt.Println(dur)
