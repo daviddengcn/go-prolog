@@ -214,7 +214,7 @@ func (m *Machine) AddRule(rule *Rule) {
 
 // returns nil if not matched
 func (r Rule) matchHead(q *ComplexTerm) *Bindings {
-	bds := newBindings(r.RVarCount())
+	bds := newBindings(nil, r.RVarCount())
 	for i, headArg := range r.Head.Args {
 		qArg := q.Args[i]
 		if !matchTerm(headArg, qArg, bds) {
@@ -236,10 +236,6 @@ func makeSolutions(slns ...*Bindings) (solutions chan *Bindings) {
 	}
 	close(solutions)
 	return solutions
-}
-
-func trivialSolution() (solutions chan *Bindings) {
-	return makeSolutions(nil)
 }
 
 func (m *Machine) process(goal Goal, bds *Bindings) bool {
@@ -310,6 +306,11 @@ func (m *Machine) process(goal Goal, bds *Bindings) bool {
 // solutions are sent, the channel is closed.
 // return when all solutions are received. Often called in a go routine.
 // nil solutions returned means failure.
+//
+// bds: may be changed (put new bindings), the caller should solve the reuse
+//      problem. The caller should not change it after returned.
+// solution: all bindings along with new bindings, i.e. bds + new bindgs, this value
+//           will not be modified later, so can be referenced/modified safely.
 func (m *Machine) prove(goal Goal, bds *Bindings) (solutions chan *Bindings) {
 	// fmt.Println(indent, "prove:", bds)
 	// fmt.Println(appendIndent(fmt.Sprint(goal), indent))
@@ -326,7 +327,7 @@ func (m *Machine) prove(goal Goal, bds *Bindings) (solutions chan *Bindings) {
 		}
 		if start == len(cg) {
 			// success
-			return trivialSolution()
+			return makeSolutions(bds)
 		}
 
 		slns0 := m.prove(cg[start], bds)
@@ -345,11 +346,10 @@ func (m *Machine) prove(goal Goal, bds *Bindings) (solutions chan *Bindings) {
 		go func() {
 			remains := cg[start:]
 			for sln0 := range slns0 {
-				bds1 := bds.combine(sln0)
-				slns1 := m.prove(remains, bds1)
+				slns1 := m.prove(remains, newBindingsFrom(sln0))
 				if slns1 != nil {
 					for sln1 := range slns1 {
-						solutions <- sln0.combine(sln1)
+						solutions <- sln1
 					}
 				}
 			}
@@ -382,7 +382,7 @@ func (m *Machine) prove(goal Goal, bds *Bindings) (solutions chan *Bindings) {
 				}
 
 				if bl {
-					return trivialSolution()
+					return makeSolutions(bds)
 				}
 				return nil
 			}
@@ -391,13 +391,12 @@ func (m *Machine) prove(goal Goal, bds *Bindings) (solutions chan *Bindings) {
 
 		case opIs:
 			r := computeTerm(R)
-			newBds := newBindingsFrom(bds)
-			if !matchTerm(L, r, newBds) {
+			if !matchTerm(L, r, bds) {
 				return nil
 			}
 
 			// fmt.Println(indent, "opIs", bi, ",", L, "is", R, "=", r, "=>", newBds)
-			return makeSolutions(newBds)
+			return makeSolutions(bds)
 		}
 
 		panic(fmt.Sprintf("Op %s is not a valid goal.", bi))
@@ -406,7 +405,7 @@ func (m *Machine) prove(goal Goal, bds *Bindings) (solutions chan *Bindings) {
 		ct := goal.(*ComplexTerm)
 		ct = ct.unify(bds).(*ComplexTerm)
 
-		return m.match(ct, bds.RVarCount())
+		return m.match(ct, bds)
 
 	default:
 		panic(fmt.Sprintf("Goal not supported: %s", goal))
@@ -415,8 +414,8 @@ func (m *Machine) prove(goal Goal, bds *Bindings) (solutions chan *Bindings) {
 	return nil
 }
 
-func calcSolution(rCount int, inBds *pVarBindings, bds *Bindings) (sln *Bindings) {
-	sln = newBindings(rCount)
+func calcSolution(qBds *Bindings, inBds *pVarBindings, bds *Bindings) (sln *Bindings) {
+	sln = newBindingsFrom(qBds)
 	inBds.each(func(v, vl variable) {
 		sln.Put(v, vl.export(bds))
 	})
@@ -428,15 +427,16 @@ func calcSolution(rCount int, inBds *pVarBindings, bds *Bindings) (sln *Bindings
 var indent string
 
 func (m *Machine) Match(query *ComplexTerm) (solutions chan *Bindings) {
-	return m.match(query, 0)
+	return m.match(query, nil)
 }
 
-// rCount: number of rule vars for query environment
+// query: has been unified
+// qBds: Bings base of query
 // solution: gV/rV -> const/gV
-func (m *Machine) match(query *ComplexTerm, rCount int) (solutions chan *Bindings) {
+func (m *Machine) match(query *ComplexTerm, qBds *Bindings) (solutions chan *Bindings) {
 	/* localized query: query -> lq */
 	// query.gV/rV -> pVas
-	inBds := newPVarBindings(rCount)
+	inBds := newPVarBindings(qBds.RVarCount())
 
 	lq := query.replaceVars(inBds).(*ComplexTerm)
 	//fmt.Println(indent, "replaceVars", query, "->", lq)
@@ -459,7 +459,7 @@ func (m *Machine) match(query *ComplexTerm, rCount int) (solutions chan *Binding
 			if rule.Body == nil {
 				// For a head-matched fact, generate a single solution.
 				//fmt.Println(indent, lq, "Fact", rule.Head, hdBds)
-				solutions <- calcSolution(rCount, inBds, hdBds)
+				solutions <- calcSolution(qBds, inBds, hdBds)
 				//break
 				continue
 			}
@@ -468,7 +468,7 @@ func (m *Machine) match(query *ComplexTerm, rCount int) (solutions chan *Binding
 			if slns != nil {
 				for sln := range slns {
 					// fmt.Println(indent, "sln:", sln, hdBds)
-					solutions <- calcSolution(rCount, inBds, hdBds.combine(sln))
+					solutions <- calcSolution(qBds, inBds, sln)
 				}
 			}
 		}

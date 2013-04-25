@@ -863,20 +863,30 @@ type Bindings struct {
 	nRVars int
 	rList []Term
 	gMap map[variable]Term
+	
+	parent *Bindings
 }
 
-func newBindings(nRVars int) *Bindings {
-	return &Bindings{nRVars: nRVars}
+func newBindings(parent *Bindings, nRVars int) *Bindings {
+	return &Bindings{nRVars: nRVars, parent: parent}
 }
 
-func newBindingsFrom(bds *Bindings) *Bindings {
-	return &Bindings{nRVars: len(bds.rList)}
+func newBindingsFrom(parent *Bindings) *Bindings {
+	return &Bindings{nRVars: parent.RVarCount(), parent: parent}
 }
 
 func (bds *Bindings) String() string {
 	var buf bytes.Buffer
 	buf.WriteRune('[')
 	first := true
+	if bds.parent != nil {
+		if first {
+			first = false
+		} else {
+			buf.WriteRune(' ')
+		}
+		buf.WriteString(bds.parent.String())
+	}
 	if bds != nil {
 		for i, vl := range bds.rList {
 			if vl == nil {
@@ -931,10 +941,13 @@ func (bds *Bindings) Put(v variable, t Term) {
 		return
 	}
 
-	bds.putG(v, t)
+	if bds.gMap == nil {
+		bds.gMap = make(map[variable]Term)
+	}
+	bds.gMap[v] = t
 }
 
-func (bds *Bindings) putG(v variable, t Term) {
+func (bds *Bindings) _putG(v variable, t Term) {
 	if bds.gMap == nil {
 		bds.gMap = make(map[variable]Term)
 	}
@@ -942,7 +955,7 @@ func (bds *Bindings) putG(v variable, t Term) {
 }
 
 // returns nil if no bindings
-func (bds *Bindings) Get(v variable) Term {
+func (bds *Bindings) Get(v variable) (t Term) {
 	if bds == nil {
 		return nil
 	}
@@ -953,16 +966,25 @@ func (bds *Bindings) Get(v variable) Term {
 			if idx >= bds.nRVars {
 				panic(fmt.Sprintf("Index %d is out of range(< %d)!", idx, bds.nRVars))
 			}
-			return nil
+		} else {
+		 t = bds.rList[idx]
 		}
-		return bds.rList[idx]
+	} else {
+		t = bds.gMap[v]
 	}
 
-	return bds.gMap[v]
+	if t == nil {
+		t = bds.parent.Get(v)
+	}
+	
+	return t
 }
 
 func (bds *Bindings) RVarCount() int {
-	return len(bds.rList)
+	if bds == nil {
+		return 0
+	}
+	return bds.nRVars
 }
 
 // keep unify until t is no longer a Variable, but no further unify
@@ -978,26 +1000,13 @@ func (bds *Bindings) unifyVar(t Term) Term {
 	return t
 }
 
-// c = a + b...
-func (a *Bindings) combine(b *Bindings) (c *Bindings) {
-	if b == nil {
-		return a
+// a -> a(+b)
+func (a *Bindings) cat(b *Bindings) {
+	for a.parent != nil {
+		a = a.parent
 	}
-
-	if a != nil {
-		for i, v := range a.rList {
-			if v != nil {
-				if b.rList == nil {
-					b.rList = make([]Term, a.nRVars)
-				}
-				b.rList[i] = v
-			}
-		}
-		for v, vl := range a.gMap {
-			b.putG(v, vl)
-		}
-	}
-	return b
+	
+	a.parent = b
 }
 
 /* matchTerm */

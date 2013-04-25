@@ -6,7 +6,7 @@ import (
 //	"os"
 //	"runtime/pprof"
 	"time"
-	"log"
+//	"log"
 )
 
 const (
@@ -97,7 +97,7 @@ func main() {
 	*/
 	
 	start := time.Now()
-	grid(9, 9)
+	grid(11, 11)
 	end := time.Now()
 	dur := end.Sub(start)
 	fmt.Println(dur)
