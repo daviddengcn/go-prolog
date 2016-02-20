@@ -3,7 +3,6 @@ package main
 import (
 	"github.com/daviddengcn/go-prolog"
 	"fmt"
-//	"os"
 //	"runtime/pprof"
 	"time"
 //	"log"
